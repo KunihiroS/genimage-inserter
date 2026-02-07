@@ -125,10 +125,25 @@ function parseSimpleYaml(yaml: string): Record<string, string> {
 		const key = trimmed.slice(0, colonIndex).trim();
 		let value = trimmed.slice(colonIndex + 1).trim();
 
-		// Remove surrounding quotes if present
-		if ((value.startsWith('"') && value.endsWith('"')) ||
-			(value.startsWith("'") && value.endsWith("'"))) {
-			value = value.slice(1, -1);
+		// Handle quoted values with potential inline comments
+		if (value.startsWith('"')) {
+			// Find the closing quote
+			const closeQuoteIndex = value.indexOf('"', 1);
+			if (closeQuoteIndex !== -1) {
+				value = value.slice(1, closeQuoteIndex);
+			}
+		} else if (value.startsWith("'")) {
+			// Find the closing single quote
+			const closeQuoteIndex = value.indexOf("'", 1);
+			if (closeQuoteIndex !== -1) {
+				value = value.slice(1, closeQuoteIndex);
+			}
+		} else {
+			// Unquoted value - remove inline comment if present
+			const commentIndex = value.indexOf('#');
+			if (commentIndex !== -1) {
+				value = value.slice(0, commentIndex).trim();
+			}
 		}
 
 		result[key] = value;

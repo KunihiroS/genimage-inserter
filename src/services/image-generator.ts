@@ -84,8 +84,7 @@ export class ImageGeneratorService {
 		}
 
 		this.isGenerating = true;
-		let notificationTimeout: ReturnType<typeof setTimeout> | null = null;
-		let loadingNotice: Notice | null = null;
+		let notificationInterval: ReturnType<typeof setInterval> | null = null;
 
 		try {
 			// Validate settings
@@ -111,14 +110,18 @@ export class ImageGeneratorService {
 
 			this.logger.info(`Selected prompt: ${selectedPrompt.name}`);
 
-			// Start loading notification with delay
-			const delayMs = this.settings.notificationDelaySeconds * 1000;
-			if (delayMs === 0) {
-				loadingNotice = new Notice('Generating image...', 0);
+			// Start periodic notification (shows every N seconds during generation)
+			const intervalMs = this.settings.notificationDelaySeconds * 1000;
+			if (intervalMs > 0) {
+				notificationInterval = setInterval(() => {
+					new Notice('Generating image...', 2500);
+				}, intervalMs);
 			} else {
-				notificationTimeout = setTimeout(() => {
-					loadingNotice = new Notice('Generating image...', 0);
-				}, delayMs);
+				// If 0, show immediately and keep showing
+				notificationInterval = setInterval(() => {
+					new Notice('Generating image...', 2500);
+				}, 3000);
+				new Notice('Generating image...', 2500);
 			}
 
 			// Generate image
@@ -129,7 +132,8 @@ export class ImageGeneratorService {
 			this.logger.info(`Image saved to: ${imagePath}`);
 
 			// Create markdown link and insert
-			const imageLink = `\n![](${imagePath})\n`;
+			// Always wrap path with <> to handle spaces and special characters safely
+			const imageLink = `\n![](<${imagePath}>)\n`;
 			insertCallback(imageLink);
 
 			// Success notification
@@ -143,12 +147,9 @@ export class ImageGeneratorService {
 		} finally {
 			this.isGenerating = false;
 
-			// Clear loading notification
-			if (notificationTimeout) {
-				clearTimeout(notificationTimeout);
-			}
-			if (loadingNotice) {
-				loadingNotice.hide();
+			// Clear notification interval
+			if (notificationInterval) {
+				clearInterval(notificationInterval);
 			}
 		}
 	}
@@ -163,9 +164,7 @@ export class ImageGeneratorService {
 		if (!this.settings.promptDirectory) {
 			throw new Error('Prompt directory is not configured. Please check plugin settings.');
 		}
-		if (!this.settings.imageOutputDirectory) {
-			throw new Error('Image output directory is not configured. Please check plugin settings.');
-		}
+		// imageOutputDirectory can be empty (means Vault root)
 	}
 
 	/**
@@ -190,9 +189,9 @@ export class ImageGeneratorService {
 	 * @returns Path to saved image (relative to vault root)
 	 */
 	private async saveImage(image: GeneratedImage, noteName: string): Promise<string> {
-		// Create output directory path
-		const sanitizedNoteName = sanitizeFilename(noteName);
-		const outputDir = `${this.settings.imageOutputDirectory}/${sanitizedNoteName}`;
+		// Create output directory path (use original note name to match existing folders)
+		const baseDir = this.settings.imageOutputDirectory.trim().replace(/^\/+|\/+$/g, '');
+		const outputDir = baseDir ? `${baseDir}/${noteName}` : noteName;
 
 		// Ensure directory exists
 		const folder = this.app.vault.getAbstractFileByPath(outputDir);
@@ -201,9 +200,10 @@ export class ImageGeneratorService {
 			this.logger.info(`Created output directory: ${outputDir}`);
 		}
 
-		// Generate filename
+		// Generate filename (sanitize for filename only, not directory)
 		const timestamp = generateTimestamp();
 		const ext = getExtensionFromMimeType(image.mimeType);
+		const sanitizedNoteName = sanitizeFilename(noteName);
 		const filename = `${timestamp}_${sanitizedNoteName}${ext}`;
 		const filePath = `${outputDir}/${filename}`;
 

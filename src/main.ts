@@ -82,21 +82,24 @@ export default class GenImageInserterPlugin extends Plugin {
 		const file = view.file;
 		const noteName = file ? file.basename : 'untitled';
 
-		// Determine insert position
+		// Capture insert position NOW (before async operation)
 		const hasSelection = !!selectedText;
+		let insertPosition: { line: number; ch: number };
+
+		if (hasSelection) {
+			// Capture selection end position at the time of command invocation
+			insertPosition = editor.getCursor('to');
+		} else {
+			// Capture end of document position
+			const lastLine = editor.lastLine();
+			const lastLineLength = editor.getLine(lastLine).length;
+			insertPosition = { line: lastLine, ch: lastLineLength };
+		}
 
 		// Generate image
 		this.imageGenerator.generate(sourceText, noteName, (imageLink: string) => {
-			if (hasSelection) {
-				// Insert after selection
-				const cursor = editor.getCursor('to');
-				editor.replaceRange(imageLink, cursor);
-			} else {
-				// Insert at end of document
-				const lastLine = editor.lastLine();
-				const lastLineLength = editor.getLine(lastLine).length;
-				editor.replaceRange(imageLink, { line: lastLine, ch: lastLineLength });
-			}
+			// Insert at the captured position (not current cursor)
+			editor.replaceRange(imageLink, insertPosition);
 		});
 	}
 }

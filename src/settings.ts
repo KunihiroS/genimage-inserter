@@ -51,18 +51,18 @@ export class GenImageInserterSettingTab extends PluginSettingTab {
 				.setPlaceholder('prompts/genimage')
 				.setValue(this.plugin.settings.promptDirectory)
 				.onChange(async (value) => {
-					this.plugin.settings.promptDirectory = value;
+					this.plugin.settings.promptDirectory = value.trim().replace(/^\/+|\/+$/g, '');
 					await this.plugin.saveSettings();
 				}));
 
 		new Setting(containerEl)
 			.setName('Image output directory')
-			.setDesc('Directory to save generated images (relative to Vault root)')
+			.setDesc('Base directory for generated images (relative to Vault root). Images are saved to {this directory}/{note name}/. Leave empty to save directly under {note name}/ in Vault root.')
 			.addText(text => text
-				.setPlaceholder('assets/generated')
+				.setPlaceholder('assets/generated (empty = Vault root)')
 				.setValue(this.plugin.settings.imageOutputDirectory)
 				.onChange(async (value) => {
-					this.plugin.settings.imageOutputDirectory = value;
+					this.plugin.settings.imageOutputDirectory = value.trim();
 					await this.plugin.saveSettings();
 				}));
 

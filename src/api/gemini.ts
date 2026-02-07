@@ -23,6 +23,17 @@ interface GeminiRequest {
 	};
 }
 
+/** Models that support full imageConfig (aspectRatio + imageSize) */
+const MODELS_WITH_FULL_IMAGE_CONFIG = [
+	'gemini-3-pro-image-preview',
+	'gemini-3-pro-image',
+];
+
+/** Models that support aspectRatio only (no imageSize) */
+const MODELS_WITH_ASPECT_RATIO_ONLY = [
+	'gemini-2.5-flash-image',
+];
+
 /** Response structure from Gemini API */
 interface GeminiResponse {
 	candidates?: {
@@ -72,24 +83,41 @@ export class GeminiClient {
 		// Combine system prompt with user text
 		const fullPrompt = `${systemPrompt}\n\n---\n\n${userText}`;
 
+		// Check model capabilities for imageConfig
+		const supportsFullImageConfig = MODELS_WITH_FULL_IMAGE_CONFIG.some(m => model.includes(m));
+		const supportsAspectRatioOnly = MODELS_WITH_ASPECT_RATIO_ONLY.some(m => model.includes(m));
+
+		// Build imageConfig based on model capabilities
+		let imageConfig: { aspectRatio?: string; imageSize?: string } | undefined;
+		if (supportsFullImageConfig) {
+			imageConfig = {
+				aspectRatio: aspectRatio,
+				imageSize: imageSize,
+			};
+		} else if (supportsAspectRatioOnly) {
+			// gemini-2.5-flash-image only supports aspectRatio, not imageSize
+			imageConfig = {
+				aspectRatio: aspectRatio,
+			};
+		}
+
 		const requestBody: GeminiRequest = {
 			contents: [{
 				parts: [{ text: fullPrompt }]
 			}],
 			generationConfig: {
 				responseModalities: ['TEXT', 'IMAGE'],
-				imageConfig: {
-					aspectRatio: aspectRatio,
-					imageSize: imageSize,
-				}
+				...(imageConfig && { imageConfig })
 			}
 		};
 
 		this.logger.info('Sending request to Gemini API', {
 			model,
-			aspectRatio,
-			imageSize,
-			promptLength: fullPrompt.length
+			aspectRatio: imageConfig?.aspectRatio ?? 'N/A (not supported)',
+			imageSize: imageConfig?.imageSize ?? 'N/A (not supported)',
+			promptLength: fullPrompt.length,
+			supportsFullImageConfig,
+			supportsAspectRatioOnly,
 		});
 
 		try {
