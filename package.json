@@ -1,7 +1,7 @@
 {
-	"name": "obsidian-sample-plugin",
-	"version": "1.0.0",
-	"description": "This is a sample plugin for Obsidian (https://obsidian.md)",
+	"name": "genimage-inserter",
+	"version": "0.1.0",
+	"description": "Generate images from note text using Gemini AI and insert them into your notes.",
 	"main": "main.js",
 	"type": "module",
 	"scripts": {
