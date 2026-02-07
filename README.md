@@ -2,6 +2,10 @@
 
 An Obsidian plugin that generates images from your note text using Gemini AI and inserts them directly into your notes.
 
+## Demo
+- Easy to use! (This is edited, not so first😇)
+https://github.com/user-attachments/assets/2bed5e65-3b78-487b-87b4-af9bedb645e4
+
 ## Features
 
 - 🎨 Generate images from selected text or entire note content using Gemini AI
