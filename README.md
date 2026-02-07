@@ -145,8 +145,6 @@ Images are inserted using standard Markdown syntax for maximum compatibility:
 
 Logs are saved to `.obsidian/plugins/genimage-inserter/genimage-inserter.log` for debugging purposes.
 
-> ⚠️ API keys are never written to logs.
-
 ## Development
 
 ```bash
