@@ -90,7 +90,7 @@ describe('GeminiClient', () => {
 			});
 		});
 
-		it('should include aspect ratio and image size in request', async () => {
+		it('should include aspect ratio only for gemini-2.5-flash-image', async () => {
 			const mockResponse = {
 				json: {
 					candidates: [{
@@ -108,12 +108,52 @@ describe('GeminiClient', () => {
 
 			vi.mocked(requestUrl).mockResolvedValue(mockResponse as any);
 
+			// gemini-2.5-flash-image only supports aspectRatio, not imageSize
 			await client.generateImage('prompt', 'text', '21:9', '4K');
 
 			const call = vi.mocked(requestUrl).mock.calls[0]?.[0];
 			expect(call).toBeDefined();
 			if (typeof call === 'object' && call && 'body' in call) {
 				const body = JSON.parse(call.body as string);
+				// Should only have aspectRatio, not imageSize
+				expect(body.generationConfig.imageConfig).toEqual({
+					aspectRatio: '21:9',
+				});
+			}
+		});
+
+		it('should include both aspect ratio and image size for gemini-3-pro-image-preview', async () => {
+			const mockResponse = {
+				json: {
+					candidates: [{
+						content: {
+							parts: [{
+								inlineData: {
+									mimeType: 'image/png',
+									data: 'data',
+								},
+							}],
+						},
+					}],
+				},
+			};
+
+			vi.mocked(requestUrl).mockResolvedValue(mockResponse as any);
+
+			// Create client with gemini-3-pro-image-preview model
+			const configWithGemini3 = {
+				...mockConfig,
+				geminiModel: 'gemini-3-pro-image-preview',
+			};
+			const gemini3Client = new GeminiClient(configWithGemini3, mockLogger);
+
+			await gemini3Client.generateImage('prompt', 'text', '21:9', '4K');
+
+			const call = vi.mocked(requestUrl).mock.calls[0]?.[0];
+			expect(call).toBeDefined();
+			if (typeof call === 'object' && call && 'body' in call) {
+				const body = JSON.parse(call.body as string);
+				// Should have both aspectRatio and imageSize
 				expect(body.generationConfig.imageConfig).toEqual({
 					aspectRatio: '21:9',
 					imageSize: '4K',
@@ -227,7 +267,7 @@ describe('GeminiClient', () => {
 				expect.objectContaining({
 					model: 'gemini-2.5-flash-image',
 					aspectRatio: '16:9',
-					imageSize: '2K',
+					// imageSize is N/A for flash model
 				})
 			);
 		});

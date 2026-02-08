@@ -9,6 +9,7 @@ export class PromptSelectorModal extends Modal {
 	private promptFiles: PromptFile[];
 	private onSelect: (promptFile: PromptFile) => void;
 	private onCancel: () => void;
+	private resolved: boolean = false;
 
 	constructor(
 		app: App,
@@ -52,6 +53,7 @@ export class PromptSelectorModal extends Modal {
 						.setButtonText('Select')
 						.setCta()
 						.onClick(() => {
+							this.resolved = true;
 							this.close();
 							this.onSelect(promptFile);
 						});
@@ -65,6 +67,7 @@ export class PromptSelectorModal extends Modal {
 				button
 					.setButtonText('Cancel')
 					.onClick(() => {
+						this.resolved = true;
 						this.close();
 						this.onCancel();
 					});
@@ -74,6 +77,13 @@ export class PromptSelectorModal extends Modal {
 	onClose() {
 		const { contentEl } = this;
 		contentEl.empty();
+
+		// If modal was closed without selection (ESC key, click outside, etc.)
+		// treat it as cancel to ensure Promise resolves
+		if (!this.resolved) {
+			this.resolved = true;
+			this.onCancel();
+		}
 	}
 }
 
