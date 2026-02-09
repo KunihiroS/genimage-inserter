@@ -3,10 +3,14 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { RequestUrlResponse } from 'obsidian';
 import { requestUrl } from 'obsidian';
 import { GeminiClient } from './gemini';
 import { EnvConfig } from '../types';
 import { Logger } from '../utils/logger';
+
+// Type for mock requestUrl response
+type MockRequestUrlResponse = Partial<RequestUrlResponse>;
 
 // Create mock logger
 const createMockLogger = (): Logger => ({
@@ -49,7 +53,7 @@ describe('GeminiClient', () => {
 				},
 			};
 
-			vi.mocked(requestUrl).mockResolvedValue(mockResponse as any);
+			vi.mocked(requestUrl).mockResolvedValue(mockResponse as unknown as RequestUrlResponse);
 
 			await client.generateImage('System prompt', 'User text', '16:9', '2K');
 
@@ -80,7 +84,7 @@ describe('GeminiClient', () => {
 				},
 			};
 
-			vi.mocked(requestUrl).mockResolvedValue(mockResponse as any);
+			vi.mocked(requestUrl).mockResolvedValue(mockResponse as unknown as RequestUrlResponse);
 
 			const result = await client.generateImage('prompt', 'text', '1:1', '1K');
 
@@ -106,7 +110,7 @@ describe('GeminiClient', () => {
 				},
 			};
 
-			vi.mocked(requestUrl).mockResolvedValue(mockResponse as any);
+			vi.mocked(requestUrl).mockResolvedValue(mockResponse as unknown as RequestUrlResponse);
 
 			// gemini-2.5-flash-image only supports aspectRatio, not imageSize
 			await client.generateImage('prompt', 'text', '21:9', '4K');
@@ -138,7 +142,7 @@ describe('GeminiClient', () => {
 				},
 			};
 
-			vi.mocked(requestUrl).mockResolvedValue(mockResponse as any);
+			vi.mocked(requestUrl).mockResolvedValue(mockResponse as unknown as RequestUrlResponse);
 
 			// Create client with gemini-3-pro-image-preview model
 			const configWithGemini3 = {
@@ -177,7 +181,7 @@ describe('GeminiClient', () => {
 				},
 			};
 
-			vi.mocked(requestUrl).mockResolvedValue(mockResponse as any);
+			vi.mocked(requestUrl).mockResolvedValue(mockResponse as unknown as RequestUrlResponse);
 
 			await client.generateImage('System instructions', 'User content', '1:1', '1K');
 
@@ -204,7 +208,7 @@ describe('GeminiClient', () => {
 				},
 			};
 
-			vi.mocked(requestUrl).mockResolvedValue(mockResponse as any);
+			vi.mocked(requestUrl).mockResolvedValue(mockResponse as unknown as RequestUrlResponse);
 
 			await expect(client.generateImage('prompt', 'text', '1:1', '1K'))
 				.rejects.toThrow('Gemini API error: Invalid request');
@@ -223,7 +227,7 @@ describe('GeminiClient', () => {
 				},
 			};
 
-			vi.mocked(requestUrl).mockResolvedValue(mockResponse as any);
+			vi.mocked(requestUrl).mockResolvedValue(mockResponse as unknown as RequestUrlResponse);
 
 			await expect(client.generateImage('prompt', 'text', '1:1', '1K'))
 				.rejects.toThrow('No image was generated');
@@ -236,7 +240,7 @@ describe('GeminiClient', () => {
 				},
 			};
 
-			vi.mocked(requestUrl).mockResolvedValue(mockResponse as any);
+			vi.mocked(requestUrl).mockResolvedValue(mockResponse as unknown as RequestUrlResponse);
 
 			await expect(client.generateImage('prompt', 'text', '1:1', '1K'))
 				.rejects.toThrow('No image was generated');
@@ -258,7 +262,7 @@ describe('GeminiClient', () => {
 				},
 			};
 
-			vi.mocked(requestUrl).mockResolvedValue(mockResponse as any);
+			vi.mocked(requestUrl).mockResolvedValue(mockResponse as unknown as RequestUrlResponse);
 
 			await client.generateImage('prompt', 'text', '16:9', '2K');
 
@@ -288,7 +292,7 @@ describe('GeminiClient', () => {
 				},
 			};
 
-			vi.mocked(requestUrl).mockResolvedValue(mockResponse as any);
+			vi.mocked(requestUrl).mockResolvedValue(mockResponse as unknown as RequestUrlResponse);
 
 			await client.generateImage('prompt', 'text', '1:1', '1K');
 

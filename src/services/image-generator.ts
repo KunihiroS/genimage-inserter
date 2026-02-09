@@ -2,7 +2,7 @@
  * Image generation service - orchestrates the entire generation flow
  */
 
-import { App, Notice, TFile } from 'obsidian';
+import { App, Notice } from 'obsidian';
 import { GenImageInserterSettings } from '../settings';
 import { PromptFile, GeneratedImage, EnvConfig } from '../types';
 import { Logger } from '../utils/logger';

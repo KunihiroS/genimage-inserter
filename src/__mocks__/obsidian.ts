@@ -97,7 +97,7 @@ export class DataAdapter {
 
 // Mock Workspace class
 export class Workspace {
-	getActiveViewOfType<T>(type: new (...args: any[]) => T): T | null {
+	getActiveViewOfType<T>(type: new (...args: unknown[]) => T): T | null {
 		return null;
 	}
 }
@@ -176,11 +176,11 @@ export class Plugin {
 		this.manifest = manifest;
 	}
 
-	async loadData(): Promise<any> {
+	async loadData(): Promise<unknown> {
 		return {};
 	}
 
-	async saveData(data: any): Promise<void> {}
+	async saveData(data: unknown): Promise<void> {}
 
 	addCommand(command: Command): Command {
 		return command;
@@ -190,7 +190,7 @@ export class Plugin {
 
 	registerEvent(eventRef: EventRef): void {}
 
-	registerDomEvent(el: Document | Element | Window, type: string, callback: (...args: any[]) => any): void {}
+	registerDomEvent(el: Document | Element | Window, type: string, callback: (...args: unknown[]) => unknown): void {}
 }
 
 // Mock PluginManifest interface

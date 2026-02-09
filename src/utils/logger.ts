@@ -1,6 +1,6 @@
 /**
  * Logger for genimage-inserter plugin
- * Logs to .obsidian/plugins/genimage-inserter/genimage-inserter.log
+ * Logs to {configDir}/plugins/genimage-inserter/genimage-inserter.log
  */
 
 import * as fs from 'fs';
@@ -24,7 +24,7 @@ export class Logger {
 		// Set log file path
 		this.logFilePath = path.join(
 			vaultPath,
-			'.obsidian',
+			app.vault.configDir,
 			'plugins',
 			'genimage-inserter',
 			'genimage-inserter.log'
@@ -75,11 +75,17 @@ export class Logger {
 		let formattedArgs = '';
 		if (args.length > 0) {
 			formattedArgs = ' ' + args.map(arg => {
+				if (arg === null) {
+					return 'null';
+				}
+				if (arg === undefined) {
+					return 'undefined';
+				}
 				if (typeof arg === 'object') {
 					try {
 						return JSON.stringify(arg);
 					} catch {
-						return String(arg);
+						return '[object]';
 					}
 				}
 				return String(arg);
@@ -94,7 +100,7 @@ export class Logger {
 		} else if (level === 'WARN') {
 			console.warn(`[genimage-inserter] ${message}`, ...args);
 		} else {
-			console.log(`[genimage-inserter] ${message}`, ...args);
+			console.debug(`[genimage-inserter] ${message}`, ...args);
 		}
 
 		// Write to file if enabled

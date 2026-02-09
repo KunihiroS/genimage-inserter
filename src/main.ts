@@ -97,7 +97,7 @@ export default class GenImageInserterPlugin extends Plugin {
 		}
 
 		// Generate image
-		this.imageGenerator.generate(sourceText, noteName, (imageLink: string) => {
+		void this.imageGenerator.generate(sourceText, noteName, (imageLink: string) => {
 			// Insert at the captured position (not current cursor)
 			editor.replaceRange(imageLink, insertPosition);
 		});

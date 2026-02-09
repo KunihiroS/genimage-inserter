@@ -30,7 +30,9 @@ export class PromptSelectorModal extends Modal {
 		contentEl.addClass('genimage-prompt-selector');
 
 		// Title
-		contentEl.createEl('h2', { text: 'Select a prompt style' });
+		new Setting(contentEl)
+			.setName('Select a prompt style')
+			.setHeading();
 
 		// Description
 		contentEl.createEl('p', {
