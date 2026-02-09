@@ -36,7 +36,7 @@ An Obsidian plugin that generates images from your note text using Gemini AI and
 
 | Setting | Description | Required |
 |---------|-------------|:--------:|
-| `.env` file path | Absolute path to your `.env` file (must be **outside** your vault for security) | ✓ |
+| `.env` file path | Path to your `.env` file (must be **outside** your vault for security). Supports `~` for home directory (e.g., `~/.config/secrets/.env`) | ✓ |
 | Prompt directory | Directory containing your prompt `.md` files (relative to vault root) | ✓ |
 | Image output directory | Directory where generated images will be saved (relative to vault root, empty = vault root) | |
 | Notification delay | Seconds before showing "Generating..." notification (0 = immediate) | |
@@ -46,10 +46,12 @@ An Obsidian plugin that generates images from your note text using Gemini AI and
 Create a `.env` file **outside your vault** with the following content:
 
 ```ini
-LLM_PROVIDER=gemini
+LLM_PROVIDER=gemini #LLM Provider is currently fixed to GEMINI
 GEMINI_API_KEY=your_api_key_here
-GEMINI_MODEL=gemini-2.5-flash-image
+GEMINI_MODEL=gemini-3-pro-image-preview
 ```
+
+**Recommended path**: Use `~/.config/genimage-inserter/.env` to ensure cross-platform compatibility (Linux, macOS, Windows).
 
 > ⚠️ **Security**: The `.env` file must be outside your vault to prevent accidental sync or exposure of your API key.
 
