@@ -120,6 +120,8 @@ If no text is selected:
 - The entire note content is sent to the AI as context
 - The generated image is inserted **at the end of the note**
 
+> ⚠️ **Note**: The image link is inserted at the last line of the note with a single line break. If your note ends within a code block (` ``` `), fenced block, or other Markdown structure, the image link may be inserted inside that structure and displayed as plain text. In such cases, manually move the image link outside the structure.
+
 ### Output Structure
 
 Generated images are saved in a folder named after your note:
