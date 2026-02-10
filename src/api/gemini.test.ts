@@ -72,7 +72,7 @@ describe('GeminiClient', () => {
 					'Content-Type': 'application/json',
 					'x-goog-api-key': 'test-api-key',
 				},
-				body: expect.stringContaining('System prompt'),
+				body: expect.stringContaining('System prompt') as unknown,
 			});
 		});
 

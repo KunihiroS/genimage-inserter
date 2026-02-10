@@ -89,31 +89,29 @@ export class Logger {
 						return '[object]';
 					}
 				}
-				return String(arg);
+				if (typeof arg === 'string') {
+					return arg;
+				}
+				if (typeof arg === 'number' || typeof arg === 'boolean' || typeof arg === 'bigint') {
+					return String(arg);
+				}
+				// symbol, function, or other
+				return typeof arg;
 			}).join(' ');
 		}
 
 		const logLine = `[${timestamp}] [${level}] ${message}${formattedArgs}\n`;
 
-		// Always log to console (stringify objects for proper display)
-		const stringifiedArgs = args.map((arg: unknown): unknown => {
-			if (arg !== null && typeof arg === 'object') {
-				try {
-					return JSON.stringify(arg);
-				} catch {
-					return '[object]';
-				}
-			}
-			return arg;
-		});
+		// Always log to console with formatted message
+		const consoleMessage = `[genimage-inserter] ${message}${formattedArgs}`;
 		
 		if (level === 'ERROR') {
-			console.error(`[genimage-inserter] ${message}`, ...stringifiedArgs);
+			console.error(consoleMessage);
 		} else if (level === 'WARN') {
-			console.warn(`[genimage-inserter] ${message}`, ...stringifiedArgs);
+			console.warn(consoleMessage);
 		} else {
 			// Use console.debug for INFO and DEBUG (console.log is not allowed)
-			console.debug(`[genimage-inserter] ${message}`, ...stringifiedArgs);
+			console.debug(consoleMessage);
 		}
 
 		// Write to file if enabled

@@ -126,7 +126,7 @@ describe('ImageGeneratorService', () => {
 			vi.mocked(showPromptSelector).mockImplementation(() => new Promise(() => {})); // Never resolves
 
 			// Start first generation (won't complete)
-			const firstCall = service.generate('text', 'note');
+			void service.generate('text', 'note');
 
 			// Try second generation immediately
 			const result = await service.generate('text', 'note');

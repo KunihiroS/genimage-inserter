@@ -1,6 +1,6 @@
 {
 	"name": "genimage-inserter",
-	"version": "0.1.5",
+	"version": "0.1.6",
 	"description": "Generate images from note text using Gemini AI and insert them into your notes.",
 	"main": "main.js",
 	"type": "module",
