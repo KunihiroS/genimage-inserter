@@ -74,7 +74,7 @@ export class Logger {
 		// Format additional arguments
 		let formattedArgs = '';
 		if (args.length > 0) {
-			formattedArgs = ' ' + args.map(arg => {
+			formattedArgs = ' ' + args.map((arg: unknown): string => {
 				if (arg === null) {
 					return 'null';
 				}

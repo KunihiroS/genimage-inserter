@@ -25,22 +25,20 @@ export default class GenImageInserterPlugin extends Plugin {
 		this.addCommand({
 			id: 'generate-image',
 			name: 'Generate image from text',
-			editorCallback: (editor: Editor, view: MarkdownView) => {
-				this.handleGenerateImage(editor, view);
-			}
+			editorCallback: this.handleGenerateImage.bind(this)
 		});
 
 		// Register context menu
 		this.registerEvent(
 			this.app.workspace.on('editor-menu', (menu, editor, view) => {
+				if (!(view instanceof MarkdownView)) return;
+				const mdView = view;
 				menu.addItem((item) => {
 					item
 						.setTitle('Generate image')
 						.setIcon('image')
 						.onClick(() => {
-							if (view instanceof MarkdownView) {
-								this.handleGenerateImage(editor, view);
-							}
+							this.handleGenerateImage(editor, mdView);
 						});
 				});
 			})
