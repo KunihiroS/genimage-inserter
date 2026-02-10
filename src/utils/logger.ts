@@ -21,10 +21,11 @@ export class Logger {
 			return;
 		}
 
-		// Set log file path
+		// Set log file path using vault's configDir (not hardcoded .obsidian)
+		const configDir = app.vault.configDir;
 		this.logFilePath = path.join(
 			vaultPath,
-			app.vault.configDir,
+			configDir,
 			'plugins',
 			'genimage-inserter',
 			'genimage-inserter.log'
@@ -94,13 +95,25 @@ export class Logger {
 
 		const logLine = `[${timestamp}] [${level}] ${message}${formattedArgs}\n`;
 
-		// Always log to console
+		// Always log to console (stringify objects for proper display)
+		const stringifiedArgs = args.map((arg: unknown): unknown => {
+			if (arg !== null && typeof arg === 'object') {
+				try {
+					return JSON.stringify(arg);
+				} catch {
+					return '[object]';
+				}
+			}
+			return arg;
+		});
+		
 		if (level === 'ERROR') {
-			console.error(`[genimage-inserter] ${message}`, ...args);
+			console.error(`[genimage-inserter] ${message}`, ...stringifiedArgs);
 		} else if (level === 'WARN') {
-			console.warn(`[genimage-inserter] ${message}`, ...args);
+			console.warn(`[genimage-inserter] ${message}`, ...stringifiedArgs);
 		} else {
-			console.debug(`[genimage-inserter] ${message}`, ...args);
+			// Use console.debug for INFO and DEBUG (console.log is not allowed)
+			console.debug(`[genimage-inserter] ${message}`, ...stringifiedArgs);
 		}
 
 		// Write to file if enabled

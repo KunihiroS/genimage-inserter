@@ -32,6 +32,10 @@ export class GenImageInserterSettingTab extends PluginSettingTab {
 		containerEl.empty();
 
 		new Setting(containerEl)
+			.setName('GenImage Inserter settings')
+			.setHeading();
+
+		new Setting(containerEl)
 			.setName('Environment file path')
 			.setDesc('Path to .env file containing API keys (must be outside vault). Supports ~ for home directory.')
 			.addText(text => text
@@ -44,7 +48,7 @@ export class GenImageInserterSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName('Prompt directory')
-			.setDesc('Directory containing prompt .md files (relative to vault root).')
+			.setDesc('Directory containing prompt .md files (relative to vault root)')
 			.addText(text => text
 				.setPlaceholder('prompts/genimage')
 				.setValue(this.plugin.settings.promptDirectory)
@@ -55,7 +59,7 @@ export class GenImageInserterSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName('Image output directory')
-			.setDesc('Base directory for generated images (relative to vault root). Images are saved to {this directory}/{note name}/. Leave empty to save directly under {note name}/ in vault root.')
+			.setDesc('Base directory for generated images (relative to vault root). Images are saved to {this directory}/{note name}/. Leave empty to save directly under {note name}/ in vault root')
 			.addText(text => text
 				.setPlaceholder('assets/generated (empty = vault root)')
 				.setValue(this.plugin.settings.imageOutputDirectory)
@@ -66,7 +70,7 @@ export class GenImageInserterSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName('Notification delay (seconds)')
-			.setDesc('Seconds to wait before showing "Generating..." notification (0 = immediate).')
+			.setDesc('Seconds to wait before showing "Generating..." notification (0 = immediate)')
 			.addText(text => text
 				.setPlaceholder('3')
 				.setValue(String(this.plugin.settings.notificationDelaySeconds))
