@@ -7,6 +7,8 @@ export default class GenImageInserterPlugin extends Plugin {
 	settings: GenImageInserterSettings;
 	private logger: Logger;
 	private imageGenerator: ImageGeneratorService;
+	private statusBarItem: HTMLElement;
+	private generatingCount: number = 0;
 
 	async onload() {
 		await this.loadSettings();
@@ -17,6 +19,9 @@ export default class GenImageInserterPlugin extends Plugin {
 
 		// Initialize image generator service
 		this.imageGenerator = new ImageGeneratorService(this.app, this.settings, this.logger);
+
+		// Initialize status bar
+		this.statusBarItem = this.addStatusBarItem();
 
 		// Add settings tab
 		this.addSettingTab(new GenImageInserterSettingTab(this.app, this));
@@ -121,17 +126,25 @@ export default class GenImageInserterPlugin extends Plugin {
 	): Promise<void> {
 		let replacementText = '';  // Empty string = marker removal on failure
 
+		// Increment counter and update status bar
+		this.generatingCount++;
+		this.updateStatusBar();
+
 		try {
 			// Generate image and get the markdown link
-			const imageLink = await this.imageGenerator.generate(sourceText, noteName);
-			if (imageLink) {
-				replacementText = imageLink;
+			const result = await this.imageGenerator.generate(sourceText, noteName);
+			if (result) {
+				replacementText = result.imageLink;
 			}
 		} catch (error) {
 			// Error already handled in service with Notice
 			const message = error instanceof Error ? error.message : 'Unknown error';
 			this.logger.error('Generation failed in executeGeneration', message);
 		} finally {
+			// Decrement counter and update status bar
+			this.generatingCount--;
+			this.updateStatusBar();
+
 			// Always replace marker (with image link on success, empty string on failure)
 			try {
 				await this.app.vault.process(file, (content) => {
@@ -148,6 +161,17 @@ export default class GenImageInserterPlugin extends Plugin {
 				const message = err instanceof Error ? err.message : 'Unknown error';
 				this.logger.warn('Could not update file (may have been deleted or renamed)', message);
 			}
+		}
+	}
+
+	/**
+	 * Update status bar text based on generation count
+	 */
+	private updateStatusBar(): void {
+		if (this.generatingCount > 0) {
+			this.statusBarItem.setText(`Generating: ${this.generatingCount} image(s)...`);
+		} else {
+			this.statusBarItem.setText('');
 		}
 	}
 }

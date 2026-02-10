@@ -115,28 +115,33 @@ describe('ImageGeneratorService', () => {
 	});
 
 	describe('generate', () => {
-		it('should return null when already generating', async () => {
-			// Setup: Make service think it's already generating
+		it('should allow parallel generation requests', async () => {
+			// Setup: Configure mocks for two parallel generations
+			const mockPrompt = createMockPrompt();
+			const mockImage = { mimeType: 'image/png', data: 'dGVzdA==' };
+
 			vi.mocked(loadEnvFile).mockReturnValue({
 				llmProvider: 'gemini',
 				geminiApiKey: 'key',
 				geminiModel: 'model',
 			});
-			vi.mocked(getPromptFiles).mockResolvedValue([createMockPrompt()]);
-			vi.mocked(showPromptSelector).mockImplementation(() => new Promise(() => {})); // Never resolves
+			vi.mocked(getPromptFiles).mockResolvedValue([mockPrompt]);
+			vi.mocked(showPromptSelector).mockResolvedValue(mockPrompt);
+			mockGenerateImage.mockResolvedValue(mockImage);
+			mockApp.vault.getAbstractFileByPath.mockReturnValue({});
+			mockApp.vault.createBinary.mockResolvedValue(undefined);
 
-			// Start first generation (won't complete)
-			void service.generate('text', 'note');
+			// Start two generations in parallel
+			const [result1, result2] = await Promise.all([
+				service.generate('text1', 'note1'),
+				service.generate('text2', 'note2'),
+			]);
 
-			// Try second generation immediately
-			const result = await service.generate('text', 'note');
-
-			expect(result).toBeNull();
-			expect(mockLogger.warn).toHaveBeenCalledWith('Generation rejected: already in progress');
-			expect(Notice).toHaveBeenCalledWith('Image generation is already in progress');
-
-			// Cleanup - we need to let the first call finish somehow
-			// Since it never resolves, we just leave it
+			// Both should succeed
+			expect(result1).not.toBeNull();
+			expect(result2).not.toBeNull();
+			expect(result1?.imageLink).toContain('note1');
+			expect(result2?.imageLink).toContain('note2');
 		});
 
 		it('should return null when user cancels prompt selection', async () => {
@@ -179,7 +184,7 @@ describe('ImageGeneratorService', () => {
 			);
 		});
 
-		it('should return image link on successful generation', async () => {
+		it('should return object with imageLink and promptName on successful generation', async () => {
 			const mockPrompt = createMockPrompt({
 				name: 'test-prompt',
 				aspectRatio: '16:9',
@@ -206,10 +211,11 @@ describe('ImageGeneratorService', () => {
 			const result = await service.generate('source text', 'MyNote');
 
 			expect(result).not.toBeNull();
-			expect(result).toContain('![](<');
-			expect(result).toContain('MyNote');
-			expect(result).toContain('.png');
-			expect(result).toMatch(/^\n!\[\]\(<.+>\)\n$/);
+			expect(result?.imageLink).toContain('![](<');
+			expect(result?.imageLink).toContain('MyNote');
+			expect(result?.imageLink).toContain('.png');
+			expect(result?.imageLink).toMatch(/^\n!\[\]\(<.+>\)\n$/);
+			expect(result?.promptName).toBe('test-prompt');
 			expect(mockLogger.info).toHaveBeenCalledWith('Image generation completed successfully');
 		});
 
@@ -273,7 +279,7 @@ describe('ImageGeneratorService', () => {
 			expect(mockLogger.error).toHaveBeenCalledWith('Image generation failed', 'API rate limit exceeded');
 		});
 
-		it('should reset isGenerating flag after completion', async () => {
+		it('should handle consecutive generation requests', async () => {
 			const mockPrompt = createMockPrompt();
 			const mockImage = { mimeType: 'image/png', data: 'dGVzdA==' };
 
@@ -289,14 +295,15 @@ describe('ImageGeneratorService', () => {
 			mockApp.vault.createBinary.mockResolvedValue(undefined);
 
 			// First call should succeed
-			await service.generate('text', 'note');
+			const result1 = await service.generate('text', 'note1');
+			expect(result1).not.toBeNull();
 
-			// Second call should also work (not blocked)
-			const result = await service.generate('text', 'note');
-			expect(result).not.toBeNull();
+			// Second call should also work
+			const result2 = await service.generate('text', 'note2');
+			expect(result2).not.toBeNull();
 		});
 
-		it('should reset isGenerating flag after error', async () => {
+		it('should allow generation after error', async () => {
 			const mockPrompt = createMockPrompt();
 
 			vi.mocked(loadEnvFile).mockReturnValue({
@@ -317,7 +324,7 @@ describe('ImageGeneratorService', () => {
 			mockApp.vault.getAbstractFileByPath.mockReturnValue({});
 			mockApp.vault.createBinary.mockResolvedValue(undefined);
 
-			// Second call should work (not blocked)
+			// Second call should work
 			const result = await service.generate('text', 'note');
 			expect(result).not.toBeNull();
 		});

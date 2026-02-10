@@ -50,7 +50,6 @@ export class ImageGeneratorService {
 	private app: App;
 	private settings: GenImageInserterSettings;
 	private logger: Logger;
-	private isGenerating: boolean = false;
 
 	constructor(app: App, settings: GenImageInserterSettings, logger: Logger) {
 		this.app = app;
@@ -69,22 +68,12 @@ export class ImageGeneratorService {
 	 * Main entry point for image generation
 	 * @param sourceText Text to generate image from
 	 * @param noteName Note name (without extension)
-	 * @returns Image markdown link on success, null on cancellation, throws on error
+	 * @returns Object with imageLink and promptName on success, null on cancellation, throws on error
 	 */
 	async generate(
 		sourceText: string,
 		noteName: string
-	): Promise<string | null> {
-		// Check if already generating
-		if (this.isGenerating) {
-			new Notice('Image generation is already in progress');
-			this.logger.warn('Generation rejected: already in progress');
-			return null;
-		}
-
-		this.isGenerating = true;
-		let notificationInterval: ReturnType<typeof setInterval> | null = null;
-
+	): Promise<{ imageLink: string; promptName: string } | null> {
 		try {
 			// Validate settings
 			this.validateSettings();
@@ -109,20 +98,6 @@ export class ImageGeneratorService {
 
 			this.logger.info(`Selected prompt: ${selectedPrompt.name}`);
 
-			// Start periodic notification (shows every N seconds during generation)
-			const intervalMs = this.settings.notificationDelaySeconds * 1000;
-			if (intervalMs > 0) {
-				notificationInterval = setInterval(() => {
-					new Notice('Generating image...', 2500);
-				}, intervalMs);
-			} else {
-				// If 0, show immediately and keep showing
-				notificationInterval = setInterval(() => {
-					new Notice('Generating image...', 2500);
-				}, 3000);
-				new Notice('Generating image...', 2500);
-			}
-
 			// Generate image
 			const image = await this.generateImage(envConfig, selectedPrompt, sourceText);
 
@@ -134,24 +109,17 @@ export class ImageGeneratorService {
 			// Always wrap path with <> to handle spaces and special characters safely
 			const imageLink = `\n![](<${imagePath}>)\n`;
 
-			// Success notification
-			new Notice('Image generated successfully!');
+			// Success notification with prompt name
+			new Notice(`Image generated (${selectedPrompt.name})`);
 			this.logger.info('Image generation completed successfully');
 
-			return imageLink;
+			return { imageLink, promptName: selectedPrompt.name };
 
 		} catch (error) {
 			const message = error instanceof Error ? error.message : 'Unknown error';
 			this.logger.error('Image generation failed', message);
 			new Notice(`Failed to generate image: ${message}`);
 			throw error;  // Re-throw so caller knows generation failed
-		} finally {
-			this.isGenerating = false;
-
-			// Clear notification interval
-			if (notificationInterval) {
-				clearInterval(notificationInterval);
-			}
 		}
 	}
 
