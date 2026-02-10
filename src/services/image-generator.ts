@@ -69,18 +69,17 @@ export class ImageGeneratorService {
 	 * Main entry point for image generation
 	 * @param sourceText Text to generate image from
 	 * @param noteName Note name (without extension)
-	 * @param insertCallback Callback to insert the image link into the editor
+	 * @returns Image markdown link on success, null on cancellation, throws on error
 	 */
 	async generate(
 		sourceText: string,
-		noteName: string,
-		insertCallback: (imageLink: string) => void
-	): Promise<void> {
+		noteName: string
+	): Promise<string | null> {
 		// Check if already generating
 		if (this.isGenerating) {
 			new Notice('Image generation is already in progress');
 			this.logger.warn('Generation rejected: already in progress');
-			return;
+			return null;
 		}
 
 		this.isGenerating = true;
@@ -105,7 +104,7 @@ export class ImageGeneratorService {
 			} catch {
 				// User cancelled
 				this.logger.info('User cancelled prompt selection');
-				return;
+				return null;
 			}
 
 			this.logger.info(`Selected prompt: ${selectedPrompt.name}`);
@@ -131,19 +130,21 @@ export class ImageGeneratorService {
 			const imagePath = await this.saveImage(image, noteName);
 			this.logger.info(`Image saved to: ${imagePath}`);
 
-			// Create markdown link and insert
+			// Create markdown link
 			// Always wrap path with <> to handle spaces and special characters safely
 			const imageLink = `\n![](<${imagePath}>)\n`;
-			insertCallback(imageLink);
 
 			// Success notification
 			new Notice('Image generated successfully!');
 			this.logger.info('Image generation completed successfully');
 
+			return imageLink;
+
 		} catch (error) {
 			const message = error instanceof Error ? error.message : 'Unknown error';
 			this.logger.error('Image generation failed', message);
 			new Notice(`Failed to generate image: ${message}`);
+			throw error;  // Re-throw so caller knows generation failed
 		} finally {
 			this.isGenerating = false;
 

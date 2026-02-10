@@ -1,4 +1,4 @@
-import { Editor, MarkdownView, Plugin } from 'obsidian';
+import { Editor, MarkdownView, Plugin, TFile } from 'obsidian';
 import { DEFAULT_SETTINGS, GenImageInserterSettings, GenImageInserterSettingTab } from './settings';
 import { Logger } from './utils/logger';
 import { ImageGeneratorService } from './services/image-generator';
@@ -76,28 +76,78 @@ export default class GenImageInserterPlugin extends Plugin {
 			return;
 		}
 
-		// Get note name
+		// Get note file (required for marker-based insertion)
 		const file = view.file;
-		const noteName = file ? file.basename : 'untitled';
+		if (!file) {
+			this.logger.warn('No file associated with view');
+			return;
+		}
+		const noteName = file.basename;
 
-		// Capture insert position NOW (before async operation)
+		// Generate unique marker for this generation
+		const marker = `<!-- genimage-pending-${Date.now()}-${Math.random().toString(36).slice(2, 8)} -->`;
+
+		// Capture insert position and insert marker NOW (before async operation)
 		const hasSelection = !!selectedText;
 		let insertPosition: { line: number; ch: number };
 
 		if (hasSelection) {
-			// Capture selection end position at the time of command invocation
+			// Insert marker at selection end
 			insertPosition = editor.getCursor('to');
 		} else {
-			// Capture end of document position
+			// Insert marker at end of document
 			const lastLine = editor.lastLine();
 			const lastLineLength = editor.getLine(lastLine).length;
 			insertPosition = { line: lastLine, ch: lastLineLength };
 		}
 
-		// Generate image (async, errors handled internally with Notice)
-		void this.imageGenerator.generate(sourceText, noteName, (imageLink: string) => {
-			// Insert at the captured position (not current cursor)
-			editor.replaceRange(imageLink, insertPosition);
-		});
+		// Insert marker at the captured position
+		editor.replaceRange(marker, insertPosition);
+		this.logger.debug(`Marker inserted: ${marker}`);
+
+		// Start async generation (marker will be replaced on completion)
+		void this.executeGeneration(file, marker, sourceText, noteName);
+	}
+
+	/**
+	 * Execute image generation and replace marker with result
+	 * Uses Vault.process() to ensure correct file is updated even if user switches notes
+	 */
+	private async executeGeneration(
+		file: TFile,
+		marker: string,
+		sourceText: string,
+		noteName: string
+	): Promise<void> {
+		let replacementText = '';  // Empty string = marker removal on failure
+
+		try {
+			// Generate image and get the markdown link
+			const imageLink = await this.imageGenerator.generate(sourceText, noteName);
+			if (imageLink) {
+				replacementText = imageLink;
+			}
+		} catch (error) {
+			// Error already handled in service with Notice
+			const message = error instanceof Error ? error.message : 'Unknown error';
+			this.logger.error('Generation failed in executeGeneration', message);
+		} finally {
+			// Always replace marker (with image link on success, empty string on failure)
+			try {
+				await this.app.vault.process(file, (content) => {
+					if (content.includes(marker)) {
+						this.logger.debug(`Replacing marker with: ${replacementText ? 'image link' : 'empty (removal)'}`);
+						return content.replace(marker, replacementText);
+					}
+					// Marker not found (user may have deleted it)
+					this.logger.warn('Marker not found in file, skipping insertion');
+					return content;
+				});
+			} catch (err) {
+				// File may have been deleted or renamed
+				const message = err instanceof Error ? err.message : 'Unknown error';
+				this.logger.warn('Could not update file (may have been deleted or renamed)', message);
+			}
+		}
 	}
 }
