@@ -9,6 +9,9 @@ export default class GenImageInserterPlugin extends Plugin {
 	private imageGenerator: ImageGeneratorService;
 	private statusBarItem: HTMLElement;
 	private generatingCount: number = 0;
+	private spinnerInterval: ReturnType<typeof setInterval> | null = null;
+	private spinnerChars = ['◐', '◓', '◑', '◒'];
+	private spinnerIndex = 0;
 
 	async onload() {
 		await this.loadSettings();
@@ -169,9 +172,31 @@ export default class GenImageInserterPlugin extends Plugin {
 	 */
 	private updateStatusBar(): void {
 		if (this.generatingCount > 0) {
-			this.statusBarItem.setText(`Generating: ${this.generatingCount} image(s)...`);
+			// Add generating class for orange color
+			this.statusBarItem.addClass('genimage-status-generating');
+			// Start spinner animation if not already running
+			if (!this.spinnerInterval) {
+				this.updateSpinnerText();
+				this.spinnerInterval = setInterval(() => this.updateSpinnerText(), 125);
+				this.registerInterval(this.spinnerInterval as unknown as number);
+			}
 		} else {
+			// Remove generating class and stop spinner
+			this.statusBarItem.removeClass('genimage-status-generating');
 			this.statusBarItem.setText('');
+			if (this.spinnerInterval) {
+				clearInterval(this.spinnerInterval);
+				this.spinnerInterval = null;
+			}
 		}
+	}
+
+	/**
+	 * Update spinner text animation
+	 */
+	private updateSpinnerText(): void {
+		const spinner = this.spinnerChars[this.spinnerIndex];
+		this.statusBarItem.setText(`${spinner} Generating: ${this.generatingCount} image(s)...`);
+		this.spinnerIndex = (this.spinnerIndex + 1) % this.spinnerChars.length;
 	}
 }

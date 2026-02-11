@@ -54,3 +54,20 @@
 	border-top: none;
 	justify-content: flex-end;
 }
+
+/* Status bar generating indicator */
+.genimage-status-generating {
+	color: #f59e0b !important;  /* Orange */
+	font-weight: 600;
+}
+
+.genimage-status-spinner {
+	display: inline-block;
+	margin-right: 4px;
+	animation: genimage-spin 1s steps(8) infinite;
+}
+
+@keyframes genimage-spin {
+	from { transform: rotate(0deg); }
+	to { transform: rotate(360deg); }
+}
