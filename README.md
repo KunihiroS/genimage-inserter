@@ -9,6 +9,7 @@ An Obsidian plugin that generates images from your note text using Gemini AI and
 ## Features
 
 - 🎨 Generate images from selected text or entire note content using Gemini AI
+  - no text selection makes an entire note as context to generate.
 - 📝 Multiple prompt templates with customizable aspect ratio and image quality
 - 🖱️ Right-click context menu integration
 - 📁 Images saved to configurable directory within your vault (organized by note name)
@@ -20,6 +21,8 @@ An Obsidian plugin that generates images from your note text using Gemini AI and
 |-------|-------|---------|----------------|--------------|
 | `gemini-2.5-flash-image` | Fast | Good | ✅ Supported | ❌ Not supported (fixed 1024×1024) |
 | `gemini-3-pro-image-preview` | Slower | High | ✅ Supported | ✅ Supported (1K/2K/4K) |
+
+> Recommend: 3-pro
 
 ## Installation
 
