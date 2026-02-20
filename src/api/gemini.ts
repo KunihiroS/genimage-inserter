@@ -57,10 +57,12 @@ interface GeminiResponse {
 export class GeminiClient {
 	private config: EnvConfig;
 	private logger: Logger;
+	private timeoutMs: number;
 
-	constructor(config: EnvConfig, logger: Logger) {
+	constructor(config: EnvConfig, logger: Logger, timeoutMs: number) {
 		this.config = config;
 		this.logger = logger;
+		this.timeoutMs = timeoutMs;
 	}
 
 	/**
@@ -121,16 +123,26 @@ export class GeminiClient {
 		});
 
 		try {
-			const response = await requestUrl({
-				url: url,
-				method: 'POST',
-				headers: {
-					'Content-Type': 'application/json',
-					'x-goog-api-key': this.config.geminiApiKey,
-				},
-				body: JSON.stringify(requestBody),
-				throw: false,
-			});
+			const timeoutPromise = new Promise<never>((_, reject) =>
+				setTimeout(
+					() => reject(new Error(`Request timed out after ${this.timeoutMs / 1000} seconds`)),
+					this.timeoutMs
+				)
+			);
+
+			const response = await Promise.race([
+				requestUrl({
+					url: url,
+					method: 'POST',
+					headers: {
+						'Content-Type': 'application/json',
+						'x-goog-api-key': this.config.geminiApiKey,
+					},
+					body: JSON.stringify(requestBody),
+					throw: false,
+				}),
+				timeoutPromise,
+			]);
 
 			// Handle HTTP-level errors (e.g. 503 Service Unavailable)
 			if (response.status >= 400) {

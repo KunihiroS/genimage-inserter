@@ -144,7 +144,8 @@ export class ImageGeneratorService {
 		prompt: PromptFile,
 		sourceText: string
 	): Promise<GeneratedImage> {
-		const client = new GeminiClient(envConfig, this.logger);
+		const timeoutMs = this.settings.requestTimeoutSeconds * 1000;
+		const client = new GeminiClient(envConfig, this.logger, timeoutMs);
 		return client.generateImage(
 			prompt.content,
 			sourceText,

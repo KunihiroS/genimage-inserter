@@ -10,6 +10,8 @@ export interface GenImageInserterSettings {
 	imageOutputDirectory: string;
 	/** Seconds before showing "Generating..." notification (0 = immediate) */
 	notificationDelaySeconds: number;
+	/** Seconds before API request times out */
+	requestTimeoutSeconds: number;
 }
 
 export const DEFAULT_SETTINGS: GenImageInserterSettings = {
@@ -17,6 +19,7 @@ export const DEFAULT_SETTINGS: GenImageInserterSettings = {
 	promptDirectory: '',
 	imageOutputDirectory: '',
 	notificationDelaySeconds: 3,
+	requestTimeoutSeconds: 180,
 };
 
 export class GenImageInserterSettingTab extends PluginSettingTab {
@@ -73,6 +76,18 @@ export class GenImageInserterSettingTab extends PluginSettingTab {
 				.onChange(async (value) => {
 					const num = parseInt(value, 10);
 					this.plugin.settings.notificationDelaySeconds = isNaN(num) ? 3 : num;
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('Request timeout (seconds)')
+			.setDesc('Time in seconds before the image generation request times out. Requests typically take around 60 seconds. Increase if you frequently see timeout errors.')
+			.addText(text => text
+				.setPlaceholder('180')
+				.setValue(String(this.plugin.settings.requestTimeoutSeconds))
+				.onChange(async (value) => {
+					const num = parseInt(value, 10);
+					this.plugin.settings.requestTimeoutSeconds = isNaN(num) || num < 10 ? 180 : num;
 					await this.plugin.saveSettings();
 				}));
 	}

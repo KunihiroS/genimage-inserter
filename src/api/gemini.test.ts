@@ -41,7 +41,7 @@ describe('GeminiClient', () => {
 	beforeEach(() => {
 		vi.resetAllMocks();
 		mockLogger = createMockLogger();
-		client = new GeminiClient(mockConfig, mockLogger as unknown as Logger);
+		client = new GeminiClient(mockConfig, mockLogger as unknown as Logger, 180_000);
 	});
 
 	describe('generateImage', () => {
@@ -158,7 +158,7 @@ describe('GeminiClient', () => {
 				...mockConfig,
 				geminiModel: 'gemini-3-pro-image-preview',
 			};
-			const gemini3Client = new GeminiClient(configWithGemini3, mockLogger as unknown as Logger);
+			const gemini3Client = new GeminiClient(configWithGemini3, mockLogger as unknown as Logger, 180_000);
 
 			await gemini3Client.generateImage('prompt', 'text', '21:9', '4K');
 

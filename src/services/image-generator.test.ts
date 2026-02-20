@@ -84,6 +84,7 @@ const validSettings: GenImageInserterSettings = {
 	promptDirectory: 'prompts',
 	imageOutputDirectory: 'assets',
 	notificationDelaySeconds: 3,
+	requestTimeoutSeconds: 180,
 };
 
 // Helper to create mock PromptFile with all required fields
@@ -337,6 +338,7 @@ describe('ImageGeneratorService', () => {
 				promptDirectory: 'new-prompts',
 				imageOutputDirectory: 'new-assets',
 				notificationDelaySeconds: 5,
+				requestTimeoutSeconds: 180,
 			};
 
 			service.updateSettings(newSettings);
