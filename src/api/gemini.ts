@@ -129,7 +129,17 @@ export class GeminiClient {
 					'x-goog-api-key': this.config.geminiApiKey,
 				},
 				body: JSON.stringify(requestBody),
+				throw: false,
 			});
+
+			// Handle HTTP-level errors (e.g. 503 Service Unavailable)
+			if (response.status >= 400) {
+				this.logger.error('Gemini API HTTP error', {
+					status: response.status,
+					body: response.text,
+				});
+				throw new Error(`Gemini API error: HTTP ${response.status}`);
+			}
 
 			const data = response.json as GeminiResponse;
 

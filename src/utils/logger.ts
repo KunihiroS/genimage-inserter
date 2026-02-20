@@ -100,10 +100,12 @@ export class Logger {
 			}).join(' ');
 		}
 
-		const logLine = `[${timestamp}] [${level}] ${message}${formattedArgs}\n`;
+		// Apply sanitization before logging
+		const safeContent = this.sanitize(`${message}${formattedArgs}`);
+		const logLine = `[${timestamp}] [${level}] ${safeContent}\n`;
 
 		// Always log to console with formatted message
-		const consoleMessage = `[genimage-inserter] ${message}${formattedArgs}`;
+		const consoleMessage = `[genimage-inserter] ${safeContent}`;
 		
 		if (level === 'ERROR') {
 			console.error(consoleMessage);
@@ -125,15 +127,14 @@ export class Logger {
 	}
 
 	/**
-	 * Sanitize sensitive data (like API keys) from log messages
+	 * Sanitize sensitive data (like API keys) from log messages.
+	 * Only masks standalone tokens (surrounded by whitespace or string boundaries)
+	 * of 20+ chars, to avoid masking file paths or structured strings.
 	 */
 	sanitize(text: string): string {
-		// Mask anything that looks like an API key
-		return text.replace(/([A-Za-z0-9_-]{20,})/g, (match) => {
-			if (match.length > 8) {
-				return match.slice(0, 4) + '****' + match.slice(-4);
-			}
-			return '****';
-		});
+		return text.replace(
+			/(^|\s)([A-Za-z0-9_+/=\-]{20,})(?=\s|$)/g,
+			(_match, prefix, token) => `${prefix}${token.slice(0, 4)}****${token.slice(-4)}`
+		);
 	}
 }
