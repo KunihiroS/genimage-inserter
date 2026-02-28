@@ -133,8 +133,8 @@ export class Logger {
 	 */
 	sanitize(text: string): string {
 		return text.replace(
-			/(^|\s)([A-Za-z0-9_+/=\-]{20,})(?=\s|$)/g,
-			(_match, prefix, token) => `${prefix}${token.slice(0, 4)}****${token.slice(-4)}`
+			/(^|\s)([A-Za-z0-9_+/=-]{20,})(?=\s|$)/g,
+			(_match: string, prefix: string, token: string) => `${prefix}${token.slice(0, 4)}****${token.slice(-4)}`
 		);
 	}
 }

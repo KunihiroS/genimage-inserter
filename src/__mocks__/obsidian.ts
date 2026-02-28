@@ -390,7 +390,7 @@ export class ButtonComponent {
 }
 
 // Mock EventRef interface
-export interface EventRef {}
+export type EventRef = object;
 
 // Mock Menu class
 export class Menu {
