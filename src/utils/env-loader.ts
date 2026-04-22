@@ -40,11 +40,20 @@ export function loadEnvFile(envFilePath: string): EnvConfig {
 		throw new Error('GEMINI_MODEL is not set in .env file');
 	}
 
-	return {
+	const config: EnvConfig = {
 		llmProvider: env['LLM_PROVIDER'] || 'gemini',
 		geminiApiKey,
 		geminiModel,
 	};
+
+	const openaiApiKey = env['OPENAI_API_KEY'];
+	if (openaiApiKey) {
+		config.openaiApiKey = openaiApiKey;
+		config.openaiModel = env['OPENAI_MODEL'] || 'gpt-image-2';
+		config.openaiBaseUrl = (env['OPENAI_BASE_URL'] || 'https://api.openai.com/v1').replace(/\/+$/, '');
+	}
+
+	return config;
 }
 
 /**

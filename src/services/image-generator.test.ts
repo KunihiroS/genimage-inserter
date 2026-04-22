@@ -33,6 +33,21 @@ vi.mock('../api/gemini', () => {
 	};
 });
 
+// Mock OpenAIClient - track constructor calls and generateImage invocations
+const mockOpenAIGenerateImage = vi.fn();
+const mockOpenAIConstructor = vi.fn();
+
+vi.mock('../api/openai', () => {
+	return {
+		OpenAIClient: class MockOpenAIClient {
+			generateImage = mockOpenAIGenerateImage;
+			constructor(...args: unknown[]) {
+				mockOpenAIConstructor(...args);
+			}
+		},
+	};
+});
+
 vi.mock('../ui/prompt-selector-modal', () => ({
 	showPromptSelector: vi.fn(),
 }));
@@ -328,6 +343,91 @@ describe('ImageGeneratorService', () => {
 			// Second call should work
 			const result = await service.generate('text', 'note');
 			expect(result).not.toBeNull();
+		});
+	});
+
+	describe('OpenAI fallback', () => {
+		const mockPrompt = createMockPrompt();
+		const geminiImage = { mimeType: 'image/png', data: 'R0VNSU5J' };
+		const openaiImage = { mimeType: 'image/png', data: 'T1BFTkFJ' };
+
+		const envWithOpenAI = {
+			llmProvider: 'gemini',
+			geminiApiKey: 'gk',
+			geminiModel: 'gm',
+			openaiApiKey: 'sk-openai',
+			openaiModel: 'gpt-image-2',
+			openaiBaseUrl: 'https://api.openai.com/v1',
+		};
+		const envWithoutOpenAI = {
+			llmProvider: 'gemini',
+			geminiApiKey: 'gk',
+			geminiModel: 'gm',
+		};
+
+		function setupSuccessfulFlow(env: typeof envWithOpenAI | typeof envWithoutOpenAI) {
+			vi.mocked(loadEnvFile).mockReturnValue(env);
+			vi.mocked(getPromptFiles).mockResolvedValue([mockPrompt]);
+			vi.mocked(showPromptSelector).mockResolvedValue(mockPrompt);
+			mockApp.vault.getAbstractFileByPath.mockReturnValue({});
+			mockApp.vault.createBinary.mockResolvedValue(undefined);
+		}
+
+		it('should not construct OpenAIClient when Gemini succeeds', async () => {
+			setupSuccessfulFlow(envWithOpenAI);
+			mockGenerateImage.mockResolvedValue(geminiImage);
+
+			const result = await service.generate('text', 'note');
+
+			expect(result).not.toBeNull();
+			expect(mockOpenAIConstructor).not.toHaveBeenCalled();
+			expect(mockOpenAIGenerateImage).not.toHaveBeenCalled();
+		});
+
+		it('should fall back to OpenAI when Gemini fails and OPENAI_API_KEY is present', async () => {
+			setupSuccessfulFlow(envWithOpenAI);
+			mockGenerateImage.mockRejectedValue(new Error('Gemini API error: HTTP 503'));
+			mockOpenAIGenerateImage.mockResolvedValue(openaiImage);
+
+			const result = await service.generate('text', 'note');
+
+			expect(result).not.toBeNull();
+			expect(mockOpenAIConstructor).toHaveBeenCalledTimes(1);
+			expect(mockOpenAIGenerateImage).toHaveBeenCalledWith(
+				mockPrompt.content,
+				'text',
+				mockPrompt.aspectRatio,
+				mockPrompt.imageSize
+			);
+			expect(mockLogger.warn).toHaveBeenCalledWith(
+				expect.stringContaining('Gemini failed, attempting OpenAI fallback') as unknown,
+				expect.objectContaining({ geminiError: 'Gemini API error: HTTP 503' }) as unknown
+			);
+			expect(mockLogger.info).toHaveBeenCalledWith('OpenAI fallback succeeded');
+		});
+
+		it('should surface the Gemini error unchanged when OPENAI_API_KEY is absent', async () => {
+			setupSuccessfulFlow(envWithoutOpenAI);
+			const geminiError = new Error('Gemini API error: HTTP 500');
+			mockGenerateImage.mockRejectedValue(geminiError);
+
+			await expect(service.generate('text', 'note')).rejects.toThrow('Gemini API error: HTTP 500');
+
+			expect(mockOpenAIConstructor).not.toHaveBeenCalled();
+			expect(mockOpenAIGenerateImage).not.toHaveBeenCalled();
+			expect(mockLogger.info).toHaveBeenCalledWith(
+				'Gemini failed and no OpenAI key configured; surfacing Gemini error'
+			);
+		});
+
+		it('should throw a combined error when both Gemini and OpenAI fail', async () => {
+			setupSuccessfulFlow(envWithOpenAI);
+			mockGenerateImage.mockRejectedValue(new Error('Gemini API error: HTTP 500'));
+			mockOpenAIGenerateImage.mockRejectedValue(new Error('OpenAI API error: HTTP 429'));
+
+			await expect(service.generate('text', 'note')).rejects.toThrow(
+				/Gemini failed: Gemini API error: HTTP 500; OpenAI fallback failed: OpenAI API error: HTTP 429/
+			);
 		});
 	});
 

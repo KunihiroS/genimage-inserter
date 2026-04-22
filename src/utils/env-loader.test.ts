@@ -128,4 +128,66 @@ GEMINI_MODEL=model
 
 		process.env.HOME = originalHome;
 	});
+
+	it('should populate OpenAI defaults when only OPENAI_API_KEY is set', () => {
+		vi.mocked(fs.existsSync).mockReturnValue(true);
+		vi.mocked(fs.readFileSync).mockReturnValue(`
+GEMINI_API_KEY=gk
+GEMINI_MODEL=gm
+OPENAI_API_KEY=sk-openai-test
+`);
+
+		const result = loadEnvFile('/path/to/.env');
+
+		expect(result.openaiApiKey).toBe('sk-openai-test');
+		expect(result.openaiModel).toBe('gpt-image-2');
+		expect(result.openaiBaseUrl).toBe('https://api.openai.com/v1');
+	});
+
+	it('should pass through explicit OPENAI_MODEL and OPENAI_BASE_URL and strip trailing slashes', () => {
+		vi.mocked(fs.existsSync).mockReturnValue(true);
+		vi.mocked(fs.readFileSync).mockReturnValue(`
+GEMINI_API_KEY=gk
+GEMINI_MODEL=gm
+OPENAI_API_KEY=sk-openai-test
+OPENAI_MODEL=gpt-image-custom
+OPENAI_BASE_URL=https://proxy.example.com/v1/
+`);
+
+		const result = loadEnvFile('/path/to/.env');
+
+		expect(result.openaiApiKey).toBe('sk-openai-test');
+		expect(result.openaiModel).toBe('gpt-image-custom');
+		expect(result.openaiBaseUrl).toBe('https://proxy.example.com/v1');
+	});
+
+	it('should leave OpenAI fields undefined when OPENAI_API_KEY is absent', () => {
+		vi.mocked(fs.existsSync).mockReturnValue(true);
+		vi.mocked(fs.readFileSync).mockReturnValue(`
+GEMINI_API_KEY=gk
+GEMINI_MODEL=gm
+`);
+
+		const result = loadEnvFile('/path/to/.env');
+
+		expect(result.openaiApiKey).toBeUndefined();
+		expect(result.openaiModel).toBeUndefined();
+		expect(result.openaiBaseUrl).toBeUndefined();
+	});
+
+	it('should leave OpenAI fields undefined when only OPENAI_MODEL and OPENAI_BASE_URL are set (no key)', () => {
+		vi.mocked(fs.existsSync).mockReturnValue(true);
+		vi.mocked(fs.readFileSync).mockReturnValue(`
+GEMINI_API_KEY=gk
+GEMINI_MODEL=gm
+OPENAI_MODEL=gpt-image-custom
+OPENAI_BASE_URL=https://proxy.example.com/v1
+`);
+
+		const result = loadEnvFile('/path/to/.env');
+
+		expect(result.openaiApiKey).toBeUndefined();
+		expect(result.openaiModel).toBeUndefined();
+		expect(result.openaiBaseUrl).toBeUndefined();
+	});
 });

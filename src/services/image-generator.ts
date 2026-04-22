@@ -9,6 +9,7 @@ import { Logger } from '../utils/logger';
 import { loadEnvFile } from '../utils/env-loader';
 import { getPromptFiles } from '../utils/prompt-parser';
 import { GeminiClient } from '../api/gemini';
+import { OpenAIClient } from '../api/openai';
 import { showPromptSelector } from '../ui/prompt-selector-modal';
 
 /**
@@ -137,7 +138,7 @@ export class ImageGeneratorService {
 	}
 
 	/**
-	 * Generate image using Gemini API
+	 * Generate image using Gemini, with optional OpenAI fallback on failure.
 	 */
 	private async generateImage(
 		envConfig: EnvConfig,
@@ -145,13 +146,40 @@ export class ImageGeneratorService {
 		sourceText: string
 	): Promise<GeneratedImage> {
 		const timeoutMs = this.settings.requestTimeoutSeconds * 1000;
-		const client = new GeminiClient(envConfig, this.logger, timeoutMs);
-		return client.generateImage(
-			prompt.content,
-			sourceText,
-			prompt.aspectRatio,
-			prompt.imageSize
-		);
+
+		try {
+			const gemini = new GeminiClient(envConfig, this.logger, timeoutMs);
+			return await gemini.generateImage(
+				prompt.content,
+				sourceText,
+				prompt.aspectRatio,
+				prompt.imageSize
+			);
+		} catch (geminiError) {
+			const geminiMsg = geminiError instanceof Error ? geminiError.message : String(geminiError);
+
+			if (!envConfig.openaiApiKey) {
+				this.logger.info('Gemini failed and no OpenAI key configured; surfacing Gemini error');
+				throw geminiError;
+			}
+
+			this.logger.warn('Gemini failed, attempting OpenAI fallback', { geminiError: geminiMsg });
+
+			try {
+				const openai = new OpenAIClient(envConfig, this.logger, timeoutMs);
+				const image = await openai.generateImage(
+					prompt.content,
+					sourceText,
+					prompt.aspectRatio,
+					prompt.imageSize
+				);
+				this.logger.info('OpenAI fallback succeeded');
+				return image;
+			} catch (openaiError) {
+				const openaiMsg = openaiError instanceof Error ? openaiError.message : String(openaiError);
+				throw new Error(`Gemini failed: ${geminiMsg}; OpenAI fallback failed: ${openaiMsg}`);
+			}
+		}
 	}
 
 	/**

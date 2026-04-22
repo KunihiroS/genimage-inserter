@@ -52,11 +52,39 @@ Create a `.env` file **outside your vault** with the following content:
 LLM_PROVIDER=gemini #LLM Provider is currently fixed to GEMINI
 GEMINI_API_KEY=your_api_key_here
 GEMINI_MODEL=gemini-3-pro-image-preview
+
+# Optional: OpenAI fallback (see "OpenAI fallback" section below)
+# OPENAI_API_KEY=sk-...
+# OPENAI_MODEL=gpt-image-2
+# OPENAI_BASE_URL=https://api.openai.com/v1
 ```
 
 **Recommended path**: Use `~/.config/genimage-inserter/.env` to ensure cross-platform compatibility (Linux, macOS, Windows).
 
 > ⚠️ **Security**: The `.env` file must be outside your vault to prevent accidental sync or exposure of your API key.
+
+### OpenAI Fallback (optional)
+
+If `OPENAI_API_KEY` is set in your `.env`, the plugin automatically retries via OpenAI's `/v1/images/generations` endpoint when the primary Gemini call fails (HTTP error, timeout, or no image returned). If `OPENAI_API_KEY` is absent, Gemini errors are surfaced as before.
+
+| Variable | Description | Default |
+|---|---|---|
+| `OPENAI_API_KEY` | Enables the fallback. Omit to disable. | — (disabled) |
+| `OPENAI_MODEL` | OpenAI image model | `gpt-image-2` |
+| `OPENAI_BASE_URL` | OpenAI-compatible base URL. Useful for proxies that expose the exact OpenAI API shape. | `https://api.openai.com/v1` |
+
+**Aspect ratio → OpenAI `size` mapping** (gpt-image-2 only accepts these three values):
+
+| prompt `aspect_ratio` | OpenAI `size` |
+|---|---|
+| `1:1` | `1024x1024` |
+| `16:9`, `4:3`, `3:2`, `5:4`, `21:9` | `1536x1024` (landscape) |
+| `9:16`, `2:3`, `3:4`, `4:5` | `1024x1536` (portrait) |
+| any other value | `1024x1024` (with a warning in the log) |
+
+The `image_size` prompt parameter (`1K`/`2K`/`4K`) is **ignored** when using the OpenAI fallback, because gpt-image models do not expose an equivalent control.
+
+> Note: Azure OpenAI uses a different URL path and auth header, so it is **not supported** by this fallback even via `OPENAI_BASE_URL`. Only endpoints that mirror the official OpenAI API shape (`POST /images/generations` with `Authorization: Bearer ...`) will work.
 
 ### Prompt Files
 
