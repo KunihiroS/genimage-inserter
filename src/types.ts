@@ -25,6 +25,8 @@ export interface EnvConfig {
 	codexAccountId?: string;
 	/** Path to Codex/ChatGPT auth.json fallback file (optional; defaults to ~/.codex/auth.json) */
 	codexAuthFilePath?: string;
+	/** Explicit opt-in for Codex auth-file fallback */
+	codexFallbackEnabled?: boolean;
 }
 
 /** Parsed prompt file with frontmatter and content */

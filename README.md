@@ -59,6 +59,7 @@ GEMINI_MODEL=gemini-3-pro-image-preview
 # OPENAI_BASE_URL=https://api.openai.com/v1
 
 # Optional: Codex OAuth fallback (see "Codex OAuth fallback" section below)
+# CODEX_FALLBACK_ENABLED=true
 # CODEX_ACCESS_TOKEN=...
 # CODEX_ACCOUNT_ID=...
 # CODEX_AUTH_FILE_PATH=~/.codex/auth.json
@@ -99,9 +100,12 @@ Codex fallback uses the ChatGPT/Codex backend `responses` endpoint with the `ima
 
 | Variable | Description | Default |
 |---|---|---|
-| `CODEX_ACCESS_TOKEN` | Optional Codex/ChatGPT OAuth access token. If omitted, the plugin reads `CODEX_AUTH_FILE_PATH`. | — |
+| `CODEX_FALLBACK_ENABLED` | Explicitly enables Codex auth-file fallback. Required when relying on the default `~/.codex/auth.json` path. | `false` |
+| `CODEX_ACCESS_TOKEN` | Optional Codex/ChatGPT OAuth access token. Setting this also explicitly enables Codex fallback. | — |
 | `CODEX_ACCOUNT_ID` | Optional account ID header when your Codex auth has one. | — |
-| `CODEX_AUTH_FILE_PATH` | Optional auth JSON path to read when `CODEX_ACCESS_TOKEN` is omitted. | `~/.codex/auth.json` |
+| `CODEX_AUTH_FILE_PATH` | Optional auth JSON path to read when `CODEX_ACCESS_TOKEN` is omitted. Setting this also explicitly enables Codex fallback. | `~/.codex/auth.json` |
+
+The default `~/.codex/auth.json` file is **not** auto-discovered unless `CODEX_FALLBACK_ENABLED=true` is set. This explicit opt-in prevents selected vault text from being sent to ChatGPT/Codex merely because the user happens to be logged in with Codex.
 
 Codex fallback image settings are fixed:
 

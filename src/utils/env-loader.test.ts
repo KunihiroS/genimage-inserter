@@ -199,6 +199,7 @@ GEMINI_MODEL=gm
 CODEX_ACCESS_TOKEN=codex-token
 CODEX_ACCOUNT_ID=acct-123
 CODEX_AUTH_FILE_PATH=/tmp/codex-auth.json
+CODEX_FALLBACK_ENABLED=true
 `);
 
 		const result = loadEnvFile('/path/to/.env');
@@ -206,5 +207,6 @@ CODEX_AUTH_FILE_PATH=/tmp/codex-auth.json
 		expect(result.codexAccessToken).toBe('codex-token');
 		expect(result.codexAccountId).toBe('acct-123');
 		expect(result.codexAuthFilePath).toBe('/tmp/codex-auth.json');
+		expect(result.codexFallbackEnabled).toBe(true);
 	});
 });

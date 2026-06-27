@@ -6,11 +6,20 @@ import { EnvConfig, GeneratedImage, AspectRatio, ImageSize } from '../types';
 import { Logger } from '../utils/logger';
 import { requestUrl } from 'obsidian';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 
 interface CodexAuthFile {
 	access_token?: string;
 	account_id?: string;
+	chatgpt_account_id?: string;
+	tokens?: {
+		access_token?: string;
+		account_id?: string;
+	};
+	account?: {
+		id?: string;
+	};
 }
 
 interface CodexAuth {
@@ -24,7 +33,12 @@ interface CodexImageGenerationItem {
 }
 
 interface CodexSsePayload {
+	type?: string;
+	error?: { message?: string };
 	item?: CodexImageGenerationItem;
+	response?: {
+		output?: CodexImageGenerationItem[];
+	};
 }
 
 const CODEX_RESPONSES_URL = 'https://chatgpt.com/backend-api/codex/responses';
@@ -36,7 +50,7 @@ const CODEX_IMAGE_FORMAT = 'png';
 
 function resolveHomePath(filePath: string): string {
 	return filePath.startsWith('~')
-		? path.join(process.env.HOME || '', filePath.slice(1))
+		? path.join(os.homedir() || process.env.USERPROFILE || process.env.HOME || '', filePath.slice(1))
 		: filePath;
 }
 
@@ -46,11 +60,12 @@ function readCodexAuthFile(filePath: string): CodexAuth | null {
 
 	const raw = fs.readFileSync(resolvedPath, 'utf-8');
 	const parsed = JSON.parse(raw) as CodexAuthFile;
-	if (!parsed.access_token) return null;
+	const accessToken = parsed.tokens?.access_token ?? parsed.access_token;
+	if (!accessToken) return null;
 
 	return {
-		accessToken: parsed.access_token,
-		accountId: parsed.account_id,
+		accessToken,
+		accountId: parsed.tokens?.account_id ?? parsed.account_id ?? parsed.chatgpt_account_id ?? parsed.account?.id,
 	};
 }
 
@@ -62,7 +77,24 @@ function resolveCodexAuth(config: EnvConfig): CodexAuth | null {
 		};
 	}
 
+	if (!config.codexAuthFilePath && !config.codexFallbackEnabled) {
+		throw new Error('Codex OAuth fallback is not enabled. Set CODEX_FALLBACK_ENABLED=true, CODEX_AUTH_FILE_PATH, or CODEX_ACCESS_TOKEN.');
+	}
+
 	return readCodexAuthFile(config.codexAuthFilePath ?? '~/.codex/auth.json');
+}
+
+function validatePngBase64(b64: string): void {
+	let bytes: Buffer;
+	try {
+		bytes = Buffer.from(b64, 'base64');
+	} catch (error) {
+		throw new Error(`Generated image is not valid base64: ${error instanceof Error ? error.message : String(error)}`);
+	}
+
+	if (bytes.length < 8 || !bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) {
+		throw new Error('Generated image is not a PNG');
+	}
 }
 
 function parseCodexImageResult(sseText: string): string {
@@ -80,8 +112,21 @@ function parseCodexImageResult(sseText: string): string {
 			continue;
 		}
 
+		if (payload.type === 'response.failed' || payload.type === 'response.incomplete' || payload.type === 'error') {
+			throw new Error(`Codex image generation failed: ${payload.error?.message ?? raw}`);
+		}
+
 		if (payload.item?.type === 'image_generation_call' && payload.item.result) {
 			return payload.item.result;
+		}
+
+		const output = payload.response?.output;
+		if (Array.isArray(output)) {
+			for (const item of output) {
+				if (item.type === 'image_generation_call' && item.result) {
+					return item.result;
+				}
+			}
 		}
 	}
 
@@ -116,6 +161,7 @@ export class CodexOAuthImageClient {
 
 		const headers: Record<string, string> = {
 			'Content-Type': 'application/json',
+			'Accept': 'text/event-stream',
 			'Authorization': `Bearer ${auth.accessToken}`,
 		};
 		if (auth.accountId) {
@@ -124,14 +170,20 @@ export class CodexOAuthImageClient {
 
 		const body = {
 			model: CODEX_RESPONSES_MODEL,
-			input: `${systemPrompt}\n\n---\n\n${userText}`,
+			instructions: systemPrompt,
+			input: [{
+				role: 'user',
+				content: [{ type: 'input_text', text: userText }],
+			}],
 			tools: [{
 				type: 'image_generation',
 				model: CODEX_IMAGE_MODEL,
 				size: CODEX_IMAGE_SIZE,
 				quality: CODEX_IMAGE_QUALITY,
-				output_format: CODEX_IMAGE_FORMAT,
 			}],
+			tool_choice: { type: 'image_generation' },
+			stream: true,
+			store: false,
 		};
 
 		const timeoutPromise = new Promise<never>((_, reject) =>
@@ -160,6 +212,8 @@ export class CodexOAuthImageClient {
 			throw new Error(`Codex OAuth API error: HTTP ${response.status}`);
 		}
 
-		return { data: parseCodexImageResult(response.text ?? ''), mimeType: 'image/png' };
+		const data = parseCodexImageResult(response.text ?? '');
+		validatePngBase64(data);
+		return { data, mimeType: 'image/png' };
 	}
 }

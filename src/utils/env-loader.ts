@@ -68,6 +68,10 @@ export function loadEnvFile(envFilePath: string): EnvConfig {
 		config.codexAuthFilePath = codexAuthFilePath;
 	}
 
+	if (env['CODEX_FALLBACK_ENABLED']?.toLowerCase() === 'true') {
+		config.codexFallbackEnabled = true;
+	}
+
 	return config;
 }
 
