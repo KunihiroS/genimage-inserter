@@ -79,16 +79,23 @@ If `OPENAI_API_KEY` is set in your `.env`, the plugin automatically retries via 
 | `OPENAI_MODEL` | OpenAI image model | `gpt-image-2` |
 | `OPENAI_BASE_URL` | OpenAI-compatible base URL. Useful for proxies that expose the exact OpenAI API shape. | `https://api.openai.com/v1` |
 
-**Aspect ratio → OpenAI `size` mapping** (gpt-image-2 only accepts these three values):
+**Aspect ratio → OpenAI `size` mapping** (gpt-image-2 supports custom dimensions; sizes preserve the requested ratio using dimensions divisible by 16):
 
 | prompt `aspect_ratio` | OpenAI `size` |
 |---|---|
 | `1:1` | `1024x1024` |
-| `16:9`, `4:3`, `3:2`, `5:4`, `21:9` | `1536x1024` (landscape) |
-| `9:16`, `2:3`, `3:4`, `4:5` | `1024x1536` (portrait) |
+| `16:9` | `1536x864` |
+| `4:3` | `1408x1056` |
+| `3:2` | `1536x1024` |
+| `5:4` | `1280x1024` |
+| `21:9` | `2016x864` |
+| `9:16` | `864x1536` |
+| `2:3` | `1024x1536` |
+| `3:4` | `1056x1408` |
+| `4:5` | `1024x1280` |
 | any other value | `1024x1024` (with a warning in the log) |
 
-The `image_size` prompt parameter (`1K`/`2K`/`4K`) is **ignored** when using the OpenAI fallback, because gpt-image models do not expose an equivalent control.
+The `image_size` prompt parameter (`1K`/`2K`/`4K`) is currently **ignored** when using the OpenAI fallback; the fallback chooses a conservative size from `aspect_ratio` only.
 
 > Note: Azure OpenAI uses a different URL path and auth header, so it is **not supported** by this fallback even via `OPENAI_BASE_URL`. Only endpoints that mirror the official OpenAI API shape (`POST /images/generations` with bearer-token authorization) will work.
 

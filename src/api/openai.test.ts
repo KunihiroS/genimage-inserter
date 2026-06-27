@@ -135,15 +135,15 @@ describe('OpenAIClient', () => {
 
 		it.each([
 			{ ratio: '1:1' as AspectRatio, expected: '1024x1024' },
-			{ ratio: '16:9' as AspectRatio, expected: '1536x1024' },
-			{ ratio: '4:3' as AspectRatio, expected: '1536x1024' },
+			{ ratio: '16:9' as AspectRatio, expected: '1536x864' },
+			{ ratio: '4:3' as AspectRatio, expected: '1408x1056' },
 			{ ratio: '3:2' as AspectRatio, expected: '1536x1024' },
-			{ ratio: '5:4' as AspectRatio, expected: '1536x1024' },
-			{ ratio: '21:9' as AspectRatio, expected: '1536x1024' },
-			{ ratio: '9:16' as AspectRatio, expected: '1024x1536' },
+			{ ratio: '5:4' as AspectRatio, expected: '1280x1024' },
+			{ ratio: '21:9' as AspectRatio, expected: '2016x864' },
+			{ ratio: '9:16' as AspectRatio, expected: '864x1536' },
 			{ ratio: '2:3' as AspectRatio, expected: '1024x1536' },
-			{ ratio: '3:4' as AspectRatio, expected: '1024x1536' },
-			{ ratio: '4:5' as AspectRatio, expected: '1024x1536' },
+			{ ratio: '3:4' as AspectRatio, expected: '1056x1408' },
+			{ ratio: '4:5' as AspectRatio, expected: '1024x1280' },
 		])('should map aspect_ratio $ratio to size $expected', async ({ ratio, expected }) => {
 			vi.mocked(requestUrl).mockResolvedValue({
 				status: 200,

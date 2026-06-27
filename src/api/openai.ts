@@ -11,15 +11,24 @@ interface OpenAIImagesResponse {
 	error?: { message?: string; code?: string | number };
 }
 
-type OpenAISize = '1024x1024' | '1024x1536' | '1536x1024';
+type OpenAISize = string;
 
-const LANDSCAPE_RATIOS: AspectRatio[] = ['16:9', '4:3', '3:2', '5:4', '21:9'];
-const PORTRAIT_RATIOS: AspectRatio[] = ['9:16', '2:3', '3:4', '4:5'];
+const ASPECT_RATIO_TO_OPENAI_SIZE: Partial<Record<AspectRatio, OpenAISize>> = {
+	'1:1': '1024x1024',
+	'16:9': '1536x864',
+	'4:3': '1408x1056',
+	'3:2': '1536x1024',
+	'5:4': '1280x1024',
+	'21:9': '2016x864',
+	'9:16': '864x1536',
+	'2:3': '1024x1536',
+	'3:4': '1056x1408',
+	'4:5': '1024x1280',
+};
 
 function mapAspectRatioToSize(aspectRatio: AspectRatio, logger: Logger): OpenAISize {
-	if (aspectRatio === '1:1') return '1024x1024';
-	if (LANDSCAPE_RATIOS.includes(aspectRatio)) return '1536x1024';
-	if (PORTRAIT_RATIOS.includes(aspectRatio)) return '1024x1536';
+	const mapped = ASPECT_RATIO_TO_OPENAI_SIZE[aspectRatio];
+	if (mapped) return mapped;
 	logger.warn('Unsupported aspect ratio for OpenAI, defaulting to 1024x1024', { aspectRatio });
 	return '1024x1024';
 }
