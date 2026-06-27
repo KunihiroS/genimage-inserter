@@ -118,7 +118,7 @@ The default `~/.codex/auth.json` file is **not** auto-discovered unless `CODEX_F
 
 If auth-file fallback returns HTTP 401, refresh the local Codex session with `codex login` or set `CODEX_ACCESS_TOKEN` to a fresh token. The plugin does not refresh Codex OAuth tokens itself.
 
-Codex fallback image settings are fixed:
+Codex fallback request settings are fixed:
 
 | Setting | Value |
 |---|---|
@@ -128,7 +128,9 @@ Codex fallback image settings are fixed:
 | quality | `low` |
 | output format | `png` |
 
-Prompt frontmatter `aspect_ratio` and `image_size` are ignored on the Codex fallback path. This is intentional: Codex fallback is a simple rescue path, not a fully configurable provider.
+The `size` value is a request setting sent to the private ChatGPT/Codex backend, not a guaranteed output dimension. The backend usually returns the requested shape, but it may return a different actual PNG size such as `864x1821`. The plugin reads the generated PNG dimensions and writes both the requested size and actual size to the debug log. A size mismatch is logged as a warning and does not fail generation.
+
+Prompt frontmatter `image_size` is ignored on the Codex fallback path. Prompt frontmatter `aspect_ratio` is not used to change the fixed request `size`, but it is added to the user prompt as a natural-language orientation hint such as `16:9 landscape / horizontal` or `4:5 portrait / vertical`. This keeps Codex fallback simple while still steering the model toward the selected prompt orientation.
 
 > ⚠️ **Security**: Do not put Codex OAuth tokens or auth JSON files inside your vault. Prefer the default `~/.codex/auth.json` created by `codex login`, or keep any custom auth file outside synced directories. The plugin logs only non-secret failure information.
 

@@ -42,12 +42,47 @@ interface CodexSsePayload {
 	};
 }
 
+interface PngDimensions {
+	width: number;
+	height: number;
+	actualSize: string;
+	actualAspectRatio: string;
+	orientation: 'landscape' | 'portrait' | 'square';
+}
+
 const CODEX_RESPONSES_URL = 'https://chatgpt.com/backend-api/codex/responses';
 const CODEX_RESPONSES_MODEL = 'gpt-5.5';
 const CODEX_IMAGE_MODEL = 'gpt-image-2';
 const CODEX_IMAGE_SIZE = '2048x1152';
 const CODEX_IMAGE_QUALITY = 'low';
 const CODEX_IMAGE_FORMAT = 'png';
+
+function greatestCommonDivisor(left: number, right: number): number {
+	let a = Math.abs(left);
+	let b = Math.abs(right);
+	while (b !== 0) {
+		const next = a % b;
+		a = b;
+		b = next;
+	}
+	return a || 1;
+}
+
+function describeOrientation(aspectRatio: AspectRatio): string {
+	const [widthText, heightText] = aspectRatio.split(':');
+	const width = Number(widthText ?? '1');
+	const height = Number(heightText ?? '1');
+	if (width > height) return `${aspectRatio} landscape / horizontal`;
+	if (width < height) return `${aspectRatio} portrait / vertical`;
+	return `${aspectRatio} square`;
+}
+
+function appendOrientationHint(userText: string, aspectRatio: AspectRatio): string {
+	return [
+		`Create a ${describeOrientation(aspectRatio)} image.`,
+		userText,
+	].join('\n\n');
+}
 
 function resolveHomePath(filePath: string): string {
 	return filePath.startsWith('~')
@@ -87,7 +122,7 @@ function resolveCodexAuth(config: EnvConfig): CodexAuth | null {
 	return readCodexAuthFile(config.codexAuthFilePath ?? '~/.codex/auth.json');
 }
 
-function validatePngBase64(b64: string): void {
+function parsePngDimensions(b64: string): PngDimensions {
 	let bytes: Buffer;
 	try {
 		bytes = Buffer.from(b64, 'base64');
@@ -95,9 +130,24 @@ function validatePngBase64(b64: string): void {
 		throw new Error(`Generated image is not valid base64: ${error instanceof Error ? error.message : String(error)}`);
 	}
 
-	if (bytes.length < 8 || !bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) {
+	if (bytes.length < 24 || !bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) {
 		throw new Error('Generated image is not a PNG');
 	}
+
+	if (bytes.toString('ascii', 12, 16) !== 'IHDR') {
+		throw new Error('Generated PNG is missing IHDR dimensions');
+	}
+
+	const width = bytes.readUInt32BE(16);
+	const height = bytes.readUInt32BE(20);
+	const divisor = greatestCommonDivisor(width, height);
+	return {
+		width,
+		height,
+		actualSize: `${width}x${height}`,
+		actualAspectRatio: `${width / divisor}:${height / divisor}`,
+		orientation: width > height ? 'landscape' : width < height ? 'portrait' : 'square',
+	};
 }
 
 function parseCodexImageResult(sseText: string): string {
@@ -154,7 +204,7 @@ export class CodexOAuthImageClient {
 			throw new Error('Codex OAuth auth is not configured. Run codex login or set CODEX_ACCESS_TOKEN.');
 		}
 
-		this.logger.debug('Codex OAuth fallback uses fixed image settings; prompt image settings are ignored', {
+		this.logger.debug('Codex OAuth fallback uses fixed request settings and aspect ratio prompt steering', {
 			aspectRatio,
 			imageSize,
 			size: CODEX_IMAGE_SIZE,
@@ -176,7 +226,7 @@ export class CodexOAuthImageClient {
 			instructions: systemPrompt,
 			input: [{
 				role: 'user',
-				content: [{ type: 'input_text', text: userText }],
+				content: [{ type: 'input_text', text: appendOrientationHint(userText, aspectRatio) }],
 			}],
 			tools: [{
 				type: 'image_generation',
@@ -219,7 +269,19 @@ export class CodexOAuthImageClient {
 		}
 
 		const data = parseCodexImageResult(response.text ?? '');
-		validatePngBase64(data);
+		const dimensions = parsePngDimensions(data);
+		const dimensionLog = {
+			requestedSize: CODEX_IMAGE_SIZE,
+			actualSize: dimensions.actualSize,
+			width: dimensions.width,
+			height: dimensions.height,
+			actualAspectRatio: dimensions.actualAspectRatio,
+			orientation: dimensions.orientation,
+		};
+		this.logger.info('Codex OAuth fallback generated PNG dimensions', dimensionLog);
+		if (dimensions.actualSize !== CODEX_IMAGE_SIZE) {
+			this.logger.warn('Codex OAuth fallback returned PNG dimensions different from requested size', dimensionLog);
+		}
 		return { data, mimeType: 'image/png' };
 	}
 }

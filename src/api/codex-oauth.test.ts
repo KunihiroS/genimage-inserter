@@ -43,7 +43,17 @@ function baseConfig(overrides: Partial<EnvConfig> = {}): EnvConfig {
 	};
 }
 
-const pngBase64 = 'iVBORw0KGgo=';
+function pngBase64WithDimensions(width: number, height: number): string {
+	const bytes = Buffer.alloc(33);
+	Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(bytes, 0);
+	bytes.writeUInt32BE(13, 8);
+	bytes.write('IHDR', 12, 'ascii');
+	bytes.writeUInt32BE(width, 16);
+	bytes.writeUInt32BE(height, 20);
+	return bytes.toString('base64');
+}
+
+const pngBase64 = pngBase64WithDimensions(2048, 1152);
 
 function firstRequest(): RequestUrlParam {
 	const firstCall = vi.mocked(requestUrl).mock.calls[0];
@@ -61,7 +71,7 @@ describe('CodexOAuthImageClient', () => {
 	});
 
 	describe('generateImage', () => {
-		it('should POST fixed Codex image settings and ignore prompt image settings', async () => {
+		it('should POST fixed Codex image settings and include aspect ratio as a prompt steering hint', async () => {
 			vi.mocked(requestUrl).mockResolvedValue({
 				status: 200,
 				text: [
@@ -73,7 +83,7 @@ describe('CodexOAuthImageClient', () => {
 			} as unknown as RequestUrlResponse);
 
 			const client = new CodexOAuthImageClient(baseConfig(), mockLogger as unknown as Logger, 300_000);
-			const image = await client.generateImage('System prompt', 'User text', '21:9', '4K');
+			const image = await client.generateImage('System prompt', 'User text', '16:9', '4K');
 
 			expect(image).toEqual({ data: pngBase64, mimeType: 'image/png' });
 
@@ -99,12 +109,11 @@ describe('CodexOAuthImageClient', () => {
 			};
 			expect(body.model).toBe('gpt-5.5');
 			expect(body.instructions).toContain('System prompt');
-			expect(body.input).toEqual([
-				{
-					role: 'user',
-					content: [{ type: 'input_text', text: 'User text' }],
-				},
-			]);
+			expect(body.input).toHaveLength(1);
+			expect(body.input[0]?.content).toHaveLength(1);
+			const inputText = body.input[0]!.content[0]!.text;
+			expect(inputText).toContain('User text');
+			expect(inputText).toContain('16:9 landscape');
 			expect(body.tools).toEqual([
 				{
 					type: 'image_generation',
@@ -116,8 +125,54 @@ describe('CodexOAuthImageClient', () => {
 			expect(body.tool_choice).toEqual({ type: 'image_generation' });
 			expect(body.stream).toBe(true);
 			expect(body.store).toBe(false);
-			expect(JSON.stringify(body)).not.toContain('21:9');
+			expect(JSON.stringify(body)).toContain('16:9 landscape');
 			expect(JSON.stringify(body)).not.toContain('4K');
+		});
+
+		it('should log actual PNG dimensions after successful generation', async () => {
+			vi.mocked(requestUrl).mockResolvedValue({
+				status: 200,
+				text: `data: {"item":{"type":"image_generation_call","result":"${pngBase64WithDimensions(2048, 1152)}"}}\n\n`,
+				json: {},
+			} as unknown as RequestUrlResponse);
+
+			const client = new CodexOAuthImageClient(baseConfig(), mockLogger as unknown as Logger, 300_000);
+			await client.generateImage('sys', 'user', '16:9', '2K');
+
+			expect(mockLogger.info).toHaveBeenCalledWith('Codex OAuth fallback generated PNG dimensions', {
+				requestedSize: '2048x1152',
+				actualSize: '2048x1152',
+				width: 2048,
+				height: 1152,
+				actualAspectRatio: '16:9',
+				orientation: 'landscape',
+			});
+			expect(mockLogger.warn).not.toHaveBeenCalledWith(
+				'Codex OAuth fallback returned PNG dimensions different from requested size',
+				expect.anything()
+			);
+		});
+
+		it('should warn and continue when actual PNG dimensions differ from requested size', async () => {
+			const portraitPng = pngBase64WithDimensions(864, 1821);
+			vi.mocked(requestUrl).mockResolvedValue({
+				status: 200,
+				text: `data: {"item":{"type":"image_generation_call","result":"${portraitPng}"}}\n\n`,
+				json: {},
+			} as unknown as RequestUrlResponse);
+
+			const client = new CodexOAuthImageClient(baseConfig(), mockLogger as unknown as Logger, 300_000);
+			const image = await client.generateImage('sys', 'user', '16:9', '2K');
+
+			expect(image).toEqual({ data: portraitPng, mimeType: 'image/png' });
+			expect(mockLogger.warn).toHaveBeenCalledWith('Codex OAuth fallback returned PNG dimensions different from requested size', {
+				requestedSize: '2048x1152',
+				actualSize: '864x1821',
+				width: 864,
+				height: 1821,
+				actualAspectRatio: '288:607',
+				orientation: 'portrait',
+			});
 		});
 
 		it('should reject missing Codex auth after explicit opt-in before sending a request', async () => {
