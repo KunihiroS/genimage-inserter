@@ -48,6 +48,21 @@ vi.mock('../api/openai', () => {
 	};
 });
 
+// Mock CodexOAuthImageClient - track constructor calls and generateImage invocations
+const mockCodexGenerateImage = vi.fn();
+const mockCodexConstructor = vi.fn();
+
+vi.mock('../api/codex-oauth', () => {
+	return {
+		CodexOAuthImageClient: class MockCodexOAuthImageClient {
+			generateImage = mockCodexGenerateImage;
+			constructor(...args: unknown[]) {
+				mockCodexConstructor(...args);
+			}
+		},
+	};
+});
+
 vi.mock('../ui/prompt-selector-modal', () => ({
 	showPromptSelector: vi.fn(),
 }));
@@ -121,6 +136,7 @@ describe('ImageGeneratorService', () => {
 
 	beforeEach(() => {
 		vi.resetAllMocks();
+		mockCodexGenerateImage.mockRejectedValue(new Error('Codex OAuth auth is not configured'));
 		mockApp = createMockApp();
 		mockLogger = createMockLogger();
 		service = new ImageGeneratorService(
@@ -290,9 +306,16 @@ describe('ImageGeneratorService', () => {
 			vi.mocked(showPromptSelector).mockResolvedValue(mockPrompt);
 			mockGenerateImage.mockRejectedValue(new Error('API rate limit exceeded'));
 
-			await expect(service.generate('text', 'note')).rejects.toThrow('API rate limit exceeded');
-			expect(Notice).toHaveBeenCalledWith('Failed to generate image: API rate limit exceeded');
-			expect(mockLogger.error).toHaveBeenCalledWith('Image generation failed', 'API rate limit exceeded');
+			await expect(service.generate('text', 'note')).rejects.toThrow(
+				/Gemini failed: API rate limit exceeded; Codex OAuth fallback failed: Codex OAuth auth is not configured/
+			);
+			expect(Notice).toHaveBeenCalledWith(
+				expect.stringContaining('Failed to generate image: Gemini failed: API rate limit exceeded')
+			);
+			expect(mockLogger.error).toHaveBeenCalledWith(
+				'Image generation failed',
+				expect.stringContaining('Gemini failed: API rate limit exceeded')
+			);
 		});
 
 		it('should handle consecutive generation requests', async () => {
@@ -406,17 +429,19 @@ describe('ImageGeneratorService', () => {
 			expect(mockLogger.info).toHaveBeenCalledWith('OpenAI fallback succeeded');
 		});
 
-		it('should surface the Gemini error unchanged when OPENAI_API_KEY is absent', async () => {
+		it('should throw combined Gemini and Codex errors when OPENAI_API_KEY is absent and Codex is unavailable', async () => {
 			setupSuccessfulFlow(envWithoutOpenAI);
 			const geminiError = new Error('Gemini API error: HTTP 500');
 			mockGenerateImage.mockRejectedValue(geminiError);
 
-			await expect(service.generate('text', 'note')).rejects.toThrow('Gemini API error: HTTP 500');
+			await expect(service.generate('text', 'note')).rejects.toThrow(
+				/Gemini failed: Gemini API error: HTTP 500; Codex OAuth fallback failed: Codex OAuth auth is not configured/
+			);
 
 			expect(mockOpenAIConstructor).not.toHaveBeenCalled();
 			expect(mockOpenAIGenerateImage).not.toHaveBeenCalled();
 			expect(mockLogger.info).toHaveBeenCalledWith(
-				'Gemini failed and no OpenAI key configured; surfacing Gemini error'
+				'Gemini failed and no OpenAI key configured; attempting Codex OAuth fallback'
 			);
 		});
 
@@ -426,8 +451,69 @@ describe('ImageGeneratorService', () => {
 			mockOpenAIGenerateImage.mockRejectedValue(new Error('OpenAI API error: HTTP 429'));
 
 			await expect(service.generate('text', 'note')).rejects.toThrow(
-				/Gemini failed: Gemini API error: HTTP 500; OpenAI fallback failed: OpenAI API error: HTTP 429/
+				/Gemini failed: Gemini API error: HTTP 500; OpenAI fallback failed: OpenAI API error: HTTP 429; Codex OAuth fallback failed: Codex OAuth auth is not configured/
 			);
+		});
+	});
+
+	describe('Codex OAuth fallback', () => {
+		const mockPrompt = createMockPrompt({ aspectRatio: '21:9', imageSize: '4K' });
+		const codexImage = { mimeType: 'image/png', data: 'Q09ERVg=' };
+
+		const envWithCodex = {
+			llmProvider: 'gemini',
+			geminiApiKey: 'gk',
+			geminiModel: 'gm',
+			codexAccessToken: 'codex-token',
+			codexAccountId: 'acct-123',
+		};
+
+		const envWithOpenAIAndCodex = {
+			...envWithCodex,
+			openaiApiKey: 'sk-openai',
+			openaiModel: 'gpt-image-2',
+			openaiBaseUrl: 'https://api.openai.com/v1',
+		};
+
+		function setupSuccessfulFlow(env: typeof envWithCodex | typeof envWithOpenAIAndCodex) {
+			vi.mocked(loadEnvFile).mockReturnValue(env);
+			vi.mocked(getPromptFiles).mockResolvedValue([mockPrompt]);
+			vi.mocked(showPromptSelector).mockResolvedValue(mockPrompt);
+			mockApp.vault.getAbstractFileByPath.mockReturnValue({});
+			mockApp.vault.createBinary.mockResolvedValue(undefined);
+		}
+
+		it('should use Codex OAuth fallback when Gemini fails and OpenAI key is absent', async () => {
+			setupSuccessfulFlow(envWithCodex);
+			mockGenerateImage.mockRejectedValue(new Error('Gemini API error: HTTP 503'));
+			mockCodexGenerateImage.mockResolvedValue(codexImage);
+
+			const result = await service.generate('text', 'note');
+
+			expect(result).not.toBeNull();
+			expect(mockOpenAIConstructor).not.toHaveBeenCalled();
+			expect(mockCodexConstructor).toHaveBeenCalledTimes(1);
+			expect(mockCodexGenerateImage).toHaveBeenCalledWith(
+				mockPrompt.content,
+				'text',
+				mockPrompt.aspectRatio,
+				mockPrompt.imageSize
+			);
+			expect(mockLogger.info).toHaveBeenCalledWith('Codex OAuth fallback succeeded');
+		});
+
+		it('should use Codex OAuth fallback after OpenAI fallback also fails', async () => {
+			setupSuccessfulFlow(envWithOpenAIAndCodex);
+			mockGenerateImage.mockRejectedValue(new Error('Gemini API error: HTTP 503'));
+			mockOpenAIGenerateImage.mockRejectedValue(new Error('OpenAI API error: HTTP 429'));
+			mockCodexGenerateImage.mockResolvedValue(codexImage);
+
+			const result = await service.generate('text', 'note');
+
+			expect(result).not.toBeNull();
+			expect(mockOpenAIConstructor).toHaveBeenCalledTimes(1);
+			expect(mockCodexConstructor).toHaveBeenCalledTimes(1);
+			expect(mockLogger.info).toHaveBeenCalledWith('Codex OAuth fallback succeeded');
 		});
 	});
 

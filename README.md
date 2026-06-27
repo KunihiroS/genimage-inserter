@@ -57,6 +57,11 @@ GEMINI_MODEL=gemini-3-pro-image-preview
 # OPENAI_API_KEY=sk-...
 # OPENAI_MODEL=gpt-image-2
 # OPENAI_BASE_URL=https://api.openai.com/v1
+
+# Optional: Codex OAuth fallback (see "Codex OAuth fallback" section below)
+# CODEX_ACCESS_TOKEN=...
+# CODEX_ACCOUNT_ID=...
+# CODEX_AUTH_FILE_PATH=~/.codex/auth.json
 ```
 
 **Recommended path**: Use `~/.config/genimage-inserter/.env` to ensure cross-platform compatibility (Linux, macOS, Windows).
@@ -65,7 +70,7 @@ GEMINI_MODEL=gemini-3-pro-image-preview
 
 ### OpenAI Fallback (optional)
 
-If `OPENAI_API_KEY` is set in your `.env`, the plugin automatically retries via OpenAI's `/v1/images/generations` endpoint when the primary Gemini call fails (HTTP error, timeout, or no image returned). If `OPENAI_API_KEY` is absent, Gemini errors are surfaced as before.
+If `OPENAI_API_KEY` is set in your `.env`, the plugin automatically retries via OpenAI's `/v1/images/generations` endpoint when the primary Gemini call fails (HTTP error, timeout, or no image returned). If OpenAI is unavailable or also fails, the plugin can then try Codex OAuth fallback when configured.
 
 | Variable | Description | Default |
 |---|---|---|
@@ -84,7 +89,33 @@ If `OPENAI_API_KEY` is set in your `.env`, the plugin automatically retries via 
 
 The `image_size` prompt parameter (`1K`/`2K`/`4K`) is **ignored** when using the OpenAI fallback, because gpt-image models do not expose an equivalent control.
 
-> Note: Azure OpenAI uses a different URL path and auth header, so it is **not supported** by this fallback even via `OPENAI_BASE_URL`. Only endpoints that mirror the official OpenAI API shape (`POST /images/generations` with `Authorization: Bearer ...`) will work.
+> Note: Azure OpenAI uses a different URL path and auth header, so it is **not supported** by this fallback even via `OPENAI_BASE_URL`. Only endpoints that mirror the official OpenAI API shape (`POST /images/generations` with bearer-token authorization) will work.
+
+### Codex OAuth Fallback (optional)
+
+If Gemini fails and OpenAI direct fallback is unavailable or fails, the plugin can make a final local fallback attempt using Codex/ChatGPT OAuth credentials. This path is intended as a last-resort local fallback when API-key based image generation is blocked.
+
+Codex fallback uses the ChatGPT/Codex backend `responses` endpoint with the `image_generation` tool. It does **not** call the `codex` CLI for each generation, but it can reuse credentials created by `codex login`.
+
+| Variable | Description | Default |
+|---|---|---|
+| `CODEX_ACCESS_TOKEN` | Optional Codex/ChatGPT OAuth access token. If omitted, the plugin reads `CODEX_AUTH_FILE_PATH`. | — |
+| `CODEX_ACCOUNT_ID` | Optional account ID header when your Codex auth has one. | — |
+| `CODEX_AUTH_FILE_PATH` | Optional auth JSON path to read when `CODEX_ACCESS_TOKEN` is omitted. | `~/.codex/auth.json` |
+
+Codex fallback image settings are fixed:
+
+| Setting | Value |
+|---|---|
+| responses model | `gpt-5.5` |
+| image model | `gpt-image-2` |
+| size | `2048x1152` |
+| quality | `low` |
+| output format | `png` |
+
+Prompt frontmatter `aspect_ratio` and `image_size` are ignored on the Codex fallback path. This is intentional: Codex fallback is a simple rescue path, not a fully configurable provider.
+
+> ⚠️ **Security**: Do not put Codex OAuth tokens or auth JSON files inside your vault. Prefer the default `~/.codex/auth.json` created by `codex login`, or keep any custom auth file outside synced directories. The plugin logs only non-secret failure information.
 
 ### Prompt Files
 

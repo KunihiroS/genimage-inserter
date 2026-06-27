@@ -190,4 +190,21 @@ OPENAI_BASE_URL=https://proxy.example.com/v1
 		expect(result.openaiModel).toBeUndefined();
 		expect(result.openaiBaseUrl).toBeUndefined();
 	});
+
+	it('should parse optional Codex OAuth fallback settings', () => {
+		vi.mocked(fs.existsSync).mockReturnValue(true);
+		vi.mocked(fs.readFileSync).mockReturnValue(`
+GEMINI_API_KEY=gk
+GEMINI_MODEL=gm
+CODEX_ACCESS_TOKEN=codex-token
+CODEX_ACCOUNT_ID=acct-123
+CODEX_AUTH_FILE_PATH=/tmp/codex-auth.json
+`);
+
+		const result = loadEnvFile('/path/to/.env');
+
+		expect(result.codexAccessToken).toBe('codex-token');
+		expect(result.codexAccountId).toBe('acct-123');
+		expect(result.codexAuthFilePath).toBe('/tmp/codex-auth.json');
+	});
 });

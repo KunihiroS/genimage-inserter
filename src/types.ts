@@ -19,6 +19,12 @@ export interface EnvConfig {
 	openaiModel?: string;
 	/** OpenAI-compatible base URL (defaults to https://api.openai.com/v1 when openaiApiKey is set) */
 	openaiBaseUrl?: string;
+	/** Codex/ChatGPT OAuth access token for image-generation fallback (optional) */
+	codexAccessToken?: string;
+	/** Codex/ChatGPT account ID header for image-generation fallback (optional) */
+	codexAccountId?: string;
+	/** Path to Codex/ChatGPT auth.json fallback file (optional; defaults to ~/.codex/auth.json) */
+	codexAuthFilePath?: string;
 }
 
 /** Parsed prompt file with frontmatter and content */

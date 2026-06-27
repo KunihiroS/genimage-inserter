@@ -53,6 +53,21 @@ export function loadEnvFile(envFilePath: string): EnvConfig {
 		config.openaiBaseUrl = (env['OPENAI_BASE_URL'] || 'https://api.openai.com/v1').replace(/\/+$/, '');
 	}
 
+	const codexAccessToken = env['CODEX_ACCESS_TOKEN'];
+	if (codexAccessToken) {
+		config.codexAccessToken = codexAccessToken;
+	}
+
+	const codexAccountId = env['CODEX_ACCOUNT_ID'];
+	if (codexAccountId) {
+		config.codexAccountId = codexAccountId;
+	}
+
+	const codexAuthFilePath = env['CODEX_AUTH_FILE_PATH'];
+	if (codexAuthFilePath) {
+		config.codexAuthFilePath = codexAuthFilePath;
+	}
+
 	return config;
 }
 
