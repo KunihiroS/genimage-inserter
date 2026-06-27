@@ -79,6 +79,8 @@ If `OPENAI_API_KEY` is set in your `.env`, the plugin automatically retries via 
 | `OPENAI_MODEL` | OpenAI image model | `gpt-image-2` |
 | `OPENAI_BASE_URL` | OpenAI-compatible base URL. Useful for proxies that expose the exact OpenAI API shape. | `https://api.openai.com/v1` |
 
+Only GPT image models are supported. Do not set `OPENAI_MODEL` to `dall-e-2` or `dall-e-3`; those models use a different response contract.
+
 **Aspect ratio → OpenAI `size` mapping** (gpt-image-2 supports custom dimensions; sizes preserve the requested ratio using dimensions divisible by 16):
 
 | prompt `aspect_ratio` | OpenAI `size` |
@@ -113,6 +115,8 @@ Codex fallback uses the ChatGPT/Codex backend `responses` endpoint with the `ima
 | `CODEX_AUTH_FILE_PATH` | Optional auth JSON path to read when `CODEX_ACCESS_TOKEN` is omitted. Setting this also explicitly enables Codex fallback. | `~/.codex/auth.json` |
 
 The default `~/.codex/auth.json` file is **not** auto-discovered unless `CODEX_FALLBACK_ENABLED=true` is set. This explicit opt-in prevents selected vault text from being sent to ChatGPT/Codex merely because the user happens to be logged in with Codex.
+
+If auth-file fallback returns HTTP 401, refresh the local Codex session with `codex login` or set `CODEX_ACCESS_TOKEN` to a fresh token. The plugin does not refresh Codex OAuth tokens itself.
 
 Codex fallback image settings are fixed:
 

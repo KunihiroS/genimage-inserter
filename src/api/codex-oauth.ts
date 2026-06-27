@@ -25,6 +25,7 @@ interface CodexAuthFile {
 interface CodexAuth {
 	accessToken: string;
 	accountId?: string;
+	source: 'env' | 'auth-file';
 }
 
 interface CodexImageGenerationItem {
@@ -66,6 +67,7 @@ function readCodexAuthFile(filePath: string): CodexAuth | null {
 	return {
 		accessToken,
 		accountId: parsed.tokens?.account_id ?? parsed.account_id ?? parsed.chatgpt_account_id ?? parsed.account?.id,
+		source: 'auth-file',
 	};
 }
 
@@ -74,6 +76,7 @@ function resolveCodexAuth(config: EnvConfig): CodexAuth | null {
 		return {
 			accessToken: config.codexAccessToken,
 			accountId: config.codexAccountId,
+			source: 'env',
 		};
 	}
 
@@ -209,6 +212,9 @@ export class CodexOAuthImageClient {
 				status: response.status,
 				bodyLength: response.text?.length ?? 0,
 			});
+			if (response.status === 401 && auth.source === 'auth-file') {
+				throw new Error('Codex OAuth auth-file token may be expired. Run `codex login` or set CODEX_ACCESS_TOKEN with a fresh token.');
+			}
 			throw new Error(`Codex OAuth API error: HTTP ${response.status}`);
 		}
 

@@ -168,6 +168,26 @@ describe('CodexOAuthImageClient', () => {
 			});
 		});
 
+		it('should surface an actionable auth refresh hint for auth-file 401 responses', async () => {
+			vi.mocked(fs.existsSync).mockReturnValue(true);
+			vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({
+				tokens: { access_token: 'expired-token', account_id: 'nested-account', refresh_token: 'refresh-token' },
+			}));
+			vi.mocked(requestUrl).mockResolvedValue({
+				status: 401,
+				text: 'expired bearer token',
+				json: {},
+			} as unknown as RequestUrlResponse);
+
+			const client = new CodexOAuthImageClient(
+				baseConfig({ codexAccessToken: undefined, codexAccountId: undefined, codexAuthFilePath: '/explicit/auth.json' }),
+				mockLogger as unknown as Logger,
+				300_000
+			);
+
+			await expect(client.generateImage('sys', 'user', '1:1', '1K')).rejects.toThrow(/codex login|CODEX_ACCESS_TOKEN/);
+		});
+
 		it('should surface Codex SSE error events', async () => {
 			vi.mocked(requestUrl).mockResolvedValue({
 				status: 200,

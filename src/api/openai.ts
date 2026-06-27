@@ -54,6 +54,9 @@ export class OpenAIClient {
 		const url = `${baseUrl}/images/generations`;
 		const apiKey = this.config.openaiApiKey ?? '';
 		const model = this.config.openaiModel ?? 'gpt-image-2';
+		if (!model.startsWith('gpt-image-')) {
+			throw new Error('Only GPT image models are supported by the OpenAI fallback. Set OPENAI_MODEL to gpt-image-2 or omit it.');
+		}
 
 		const size = mapAspectRatioToSize(aspectRatio, this.logger);
 		this.logger.debug('OpenAI ignores imageSize parameter (no equivalent in gpt-image API)', { imageSize });

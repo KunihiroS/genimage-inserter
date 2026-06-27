@@ -133,6 +133,17 @@ describe('OpenAIClient', () => {
 			).rejects.toThrow(/No image/);
 		});
 
+		it('should reject unsupported DALL-E models before sending a request', async () => {
+			const client = new OpenAIClient(
+				baseConfig({ openaiModel: 'dall-e-3' }),
+				mockLogger as unknown as Logger,
+				180_000
+			);
+
+			await expect(client.generateImage('sys', 'user', '1:1', '1K')).rejects.toThrow(/Only GPT image models/);
+			expect(requestUrl).not.toHaveBeenCalled();
+		});
+
 		it.each([
 			{ ratio: '1:1' as AspectRatio, expected: '1024x1024' },
 			{ ratio: '16:9' as AspectRatio, expected: '1536x864' },
