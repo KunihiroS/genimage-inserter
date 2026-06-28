@@ -76,10 +76,10 @@ If `OPENAI_API_KEY` is set in your `.env`, the plugin automatically retries via 
 | Variable | Description | Default |
 |---|---|---|
 | `OPENAI_API_KEY` | Enables the fallback. Omit to disable. | — (disabled) |
-| `OPENAI_MODEL` | OpenAI image model | `gpt-image-2` |
+| `OPENAI_MODEL` | OpenAI image model. Only `gpt-image-2` is supported by this fallback. | `gpt-image-2` |
 | `OPENAI_BASE_URL` | OpenAI-compatible base URL. Useful for proxies that expose the exact OpenAI API shape. | `https://api.openai.com/v1` |
 
-Only GPT image models are supported. Do not set `OPENAI_MODEL` to `dall-e-2` or `dall-e-3`; those models use a different response contract.
+Only `gpt-image-2` is supported by the OpenAI fallback. Do not set `OPENAI_MODEL` to `gpt-image-1`, `gpt-image-1.5`, `gpt-image-1-mini`, `dall-e-2`, or `dall-e-3`; those models have different size or response contracts.
 
 **Aspect ratio → OpenAI `size` mapping** (gpt-image-2 supports custom dimensions; sizes preserve the requested ratio using dimensions divisible by 16):
 
