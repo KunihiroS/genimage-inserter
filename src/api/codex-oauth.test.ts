@@ -120,6 +120,7 @@ describe('CodexOAuthImageClient', () => {
 					model: 'gpt-image-2',
 					size: '2048x1152',
 					quality: 'low',
+					output_format: 'png',
 				},
 			]);
 			expect(body.tool_choice).toEqual({ type: 'image_generation' });
@@ -223,6 +224,31 @@ describe('CodexOAuthImageClient', () => {
 			});
 		});
 
+		it('should use env account id when auth file has only a token', async () => {
+			vi.mocked(fs.existsSync).mockReturnValue(true);
+			vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({
+				tokens: { access_token: 'nested-token' },
+			}));
+			vi.mocked(requestUrl).mockResolvedValue({
+				status: 200,
+				text: `data: {"response":{"output":[{"type":"image_generation_call","result":"${pngBase64}"}]}}\n\n`,
+				json: {},
+			} as unknown as RequestUrlResponse);
+
+			const client = new CodexOAuthImageClient(
+				baseConfig({ codexAccessToken: undefined, codexAccountId: 'env-account', codexAuthFilePath: '/explicit/auth.json' }),
+				mockLogger as unknown as Logger,
+				300_000
+			);
+
+			await client.generateImage('sys', 'user', '1:1', '1K');
+
+			expect(firstRequest().headers).toMatchObject({
+				'Authorization': 'Bearer nested-token',
+				'ChatGPT-Account-ID': 'env-account',
+			});
+		});
+
 		it('should surface an actionable auth refresh hint for auth-file 401 responses', async () => {
 			vi.mocked(fs.existsSync).mockReturnValue(true);
 			vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({
@@ -253,6 +279,19 @@ describe('CodexOAuthImageClient', () => {
 			const client = new CodexOAuthImageClient(baseConfig(), mockLogger as unknown as Logger, 300_000);
 
 			await expect(client.generateImage('sys', 'user', '1:1', '1K')).rejects.toThrow(/quota exceeded/);
+		});
+
+		it('should surface known response failure messages without leaking raw SSE events', async () => {
+			vi.mocked(requestUrl).mockResolvedValue({
+				status: 200,
+				text: 'data: {"type":"response.failed","response":{"error":{"message":"workspace denied","secret":"raw-payload"}}}\n\n',
+				json: {},
+			} as unknown as RequestUrlResponse);
+
+			const client = new CodexOAuthImageClient(baseConfig(), mockLogger as unknown as Logger, 300_000);
+
+			await expect(client.generateImage('sys', 'user', '1:1', '1K')).rejects.toThrow('Codex image generation failed: workspace denied');
+			await expect(client.generateImage('sys', 'user', '1:1', '1K')).rejects.not.toThrow(/raw-payload/);
 		});
 
 		it('should reject invalid PNG image data', async () => {

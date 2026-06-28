@@ -35,9 +35,11 @@ interface CodexImageGenerationItem {
 
 interface CodexSsePayload {
 	type?: string;
+	message?: string;
 	error?: { message?: string };
 	item?: CodexImageGenerationItem;
 	response?: {
+		error?: { message?: string };
 		output?: CodexImageGenerationItem[];
 	};
 }
@@ -90,7 +92,7 @@ function resolveHomePath(filePath: string): string {
 		: filePath;
 }
 
-function readCodexAuthFile(filePath: string): CodexAuth | null {
+function readCodexAuthFile(filePath: string, fallbackAccountId?: string): CodexAuth | null {
 	const resolvedPath = resolveHomePath(filePath);
 	if (!fs.existsSync(resolvedPath)) return null;
 
@@ -101,7 +103,7 @@ function readCodexAuthFile(filePath: string): CodexAuth | null {
 
 	return {
 		accessToken,
-		accountId: parsed.tokens?.account_id ?? parsed.account_id ?? parsed.chatgpt_account_id ?? parsed.account?.id,
+		accountId: parsed.tokens?.account_id ?? parsed.account_id ?? parsed.chatgpt_account_id ?? parsed.account?.id ?? fallbackAccountId,
 		source: 'auth-file',
 	};
 }
@@ -119,7 +121,7 @@ function resolveCodexAuth(config: EnvConfig): CodexAuth | null {
 		throw new Error('Codex OAuth fallback is not enabled. Set CODEX_FALLBACK_ENABLED=true, CODEX_AUTH_FILE_PATH, or CODEX_ACCESS_TOKEN.');
 	}
 
-	return readCodexAuthFile(config.codexAuthFilePath ?? '~/.codex/auth.json');
+	return readCodexAuthFile(config.codexAuthFilePath ?? '~/.codex/auth.json', config.codexAccountId);
 }
 
 function parsePngDimensions(b64: string): PngDimensions {
@@ -166,7 +168,8 @@ function parseCodexImageResult(sseText: string): string {
 		}
 
 		if (payload.type === 'response.failed' || payload.type === 'response.incomplete' || payload.type === 'error') {
-			throw new Error(`Codex image generation failed: ${payload.error?.message ?? raw}`);
+			const message = payload.error?.message ?? payload.response?.error?.message ?? payload.message ?? 'unknown streamed error';
+			throw new Error(`Codex image generation failed: ${message}`);
 		}
 
 		if (payload.item?.type === 'image_generation_call' && payload.item.result) {
@@ -233,6 +236,7 @@ export class CodexOAuthImageClient {
 				model: CODEX_IMAGE_MODEL,
 				size: CODEX_IMAGE_SIZE,
 				quality: CODEX_IMAGE_QUALITY,
+				output_format: CODEX_IMAGE_FORMAT,
 			}],
 			tool_choice: { type: 'image_generation' },
 			stream: true,
