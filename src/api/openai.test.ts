@@ -140,7 +140,18 @@ describe('OpenAIClient', () => {
 				180_000
 			);
 
-			await expect(client.generateImage('sys', 'user', '1:1', '1K')).rejects.toThrow(/Only GPT image models/);
+			await expect(client.generateImage('sys', 'user', '1:1', '1K')).rejects.toThrow(/gpt-image-2/);
+			expect(requestUrl).not.toHaveBeenCalled();
+		});
+
+		it.each(['gpt-image-1', 'gpt-image-1.5', 'gpt-image-1-mini'])('should reject legacy GPT image model %s before sending a custom-size request', async (model) => {
+			const client = new OpenAIClient(
+				baseConfig({ openaiModel: model }),
+				mockLogger as unknown as Logger,
+				180_000
+			);
+
+			await expect(client.generateImage('sys', 'user', '16:9', '1K')).rejects.toThrow(/gpt-image-2/);
 			expect(requestUrl).not.toHaveBeenCalled();
 		});
 
