@@ -59,14 +59,8 @@ GEMINI_MODEL=gemini-3-pro-image-preview
 # OPENAI_BASE_URL=https://api.openai.com/v1
 
 # Optional: Codex OAuth fallback (see "Codex OAuth fallback" section below)
+# After `codex login`, this single flag is all you need:
 # CODEX_FALLBACK_ENABLED=true
-# The three lines below are normally NOT needed: if you have run `codex login`,
-# both the access token and account ID are read automatically from
-# ~/.codex/auth.json. Only set them for an explicit token, a non-default
-# account, or a custom auth-file location.
-# CODEX_ACCESS_TOKEN=...
-# CODEX_ACCOUNT_ID=...
-# CODEX_AUTH_FILE_PATH=~/.codex/auth.json
 ```
 
 **Recommended path**: Use `~/.config/genimage-inserter/.env` to ensure cross-platform compatibility (Linux, macOS, Windows).
@@ -111,18 +105,11 @@ If Gemini fails and OpenAI direct fallback is unavailable or fails, the plugin c
 
 Codex fallback uses the ChatGPT/Codex backend `responses` endpoint with the `image_generation` tool. It does **not** call the `codex` CLI for each generation, but it can reuse credentials created by `codex login`.
 
-| Variable | Description | Default |
-|---|---|---|
-| `CODEX_FALLBACK_ENABLED` | Explicitly enables Codex auth-file fallback. Required when relying on the default `~/.codex/auth.json` path. | `false` |
-| `CODEX_ACCESS_TOKEN` | Optional Codex/ChatGPT OAuth access token. Setting this also explicitly enables Codex fallback. | — |
-| `CODEX_ACCOUNT_ID` | Optional account ID header when your Codex auth has one. | — |
-| `CODEX_AUTH_FILE_PATH` | Optional auth JSON path to read when `CODEX_ACCESS_TOKEN` is omitted. Setting this also explicitly enables Codex fallback. | `~/.codex/auth.json` |
-
-In a normal `codex login` setup, **`CODEX_FALLBACK_ENABLED=true` is the only variable you need**. The plugin reads both the access token and the account ID directly from `~/.codex/auth.json`, so `CODEX_ACCESS_TOKEN`, `CODEX_ACCOUNT_ID`, and `CODEX_AUTH_FILE_PATH` can all be left unset. They are overrides for non-default cases only: an explicit token, an account whose ID is not present in the auth file, or an auth file stored outside the default path.
+**Setup**: run `codex login`, then add `CODEX_FALLBACK_ENABLED=true` to your `.env`. That single flag is all you need — the plugin reads the required credentials from the default `~/.codex/auth.json`. (Advanced overrides for a custom token, account ID, or auth-file path exist but are rarely needed.)
 
 The default `~/.codex/auth.json` file is **not** auto-discovered unless `CODEX_FALLBACK_ENABLED=true` is set. This explicit opt-in prevents selected vault text from being sent to ChatGPT/Codex merely because the user happens to be logged in with Codex.
 
-If auth-file fallback returns HTTP 401, refresh the local Codex session with `codex login` or set `CODEX_ACCESS_TOKEN` to a fresh token. The plugin does not refresh Codex OAuth tokens itself.
+If the fallback returns HTTP 401, refresh the local Codex session with `codex login`. The plugin does not refresh tokens itself.
 
 Codex fallback request settings are fixed:
 
