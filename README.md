@@ -15,14 +15,21 @@ An Obsidian plugin that generates images from your note text using Gemini AI and
 - 📁 Images saved to configurable directory within your vault (organized by note name)
 - 📋 Detailed logging for troubleshooting
 
-## Supported Models
+## Models
 
-| Model | Speed | Quality | `aspect_ratio` | `image_size` |
-|-------|-------|---------|----------------|--------------|
-| `gemini-2.5-flash-image` | Fast | Good | ✅ Supported | ❌ Not supported (fixed 1024×1024) |
-| `gemini-3-pro-image-preview` | Slower | High | ✅ Supported | ✅ Supported (1K/2K/4K) |
+Set any Gemini image-generation model name in `GEMINI_MODEL`. Gemini models are added and retired over time, so check the [official Gemini model list](https://ai.google.dev/gemini-api/docs/models) for currently available names.
 
-> Recommend: 3-pro
+> ⚠️ **Limitation**: The plugin decides whether to send prompt `aspect_ratio` / `image_size` from a fixed list of model names built into the code. Only the names below are recognized; newer models are not added automatically.
+
+| `GEMINI_MODEL` contains | `aspect_ratio` | `image_size` |
+|-------|----------------|--------------|
+| `gemini-3-pro-image` | ✅ Applied | ✅ Applied (1K/2K/4K) |
+| `gemini-2.5-flash-image` | ✅ Applied | ❌ Not applied |
+| any other model | ❌ Not applied | ❌ Not applied |
+
+For any other model, generation still works, but `aspect_ratio` and `image_size` are not sent to the API, so the model's default size and shape are used (the log shows `N/A (not supported)`). For example, newer models such as `gemini-3.1-flash-image` or `gemini-nano-banana-2.1` (as of October 2026) fall into this case. Use a `gemini-3-pro-image` model if you need `aspect_ratio` / `image_size` to take effect.
+
+> Note: Model names elsewhere in this README (for example in `.env` samples) are examples and may be outdated.
 
 ## Installation
 
@@ -51,7 +58,7 @@ Create a `.env` file **outside your vault** with the following content:
 ```ini
 LLM_PROVIDER=gemini #LLM Provider is currently fixed to GEMINI
 GEMINI_API_KEY=your_api_key_here
-GEMINI_MODEL=gemini-3-pro-image-preview
+GEMINI_MODEL=gemini-3-pro-image # example; see the "Models" section
 
 # Optional: OpenAI fallback (see "OpenAI fallback" section below)
 # OPENAI_API_KEY=sk-...
@@ -61,8 +68,8 @@ GEMINI_MODEL=gemini-3-pro-image-preview
 # Optional: Codex OAuth fallback (see "Codex OAuth fallback" section below)
 # After `codex login`, this single flag is all you need:
 # CODEX_FALLBACK_ENABLED=true
-# Optional: override the Codex top-level Responses main model
-# CODEX_RESPONSES_MODEL=gpt-6.1-sol
+# Optional: override the Codex Responses model (unset = built-in default)
+# CODEX_RESPONSES_MODEL=<model-name>
 ```
 
 **Recommended path**: Use `~/.config/genimage-inserter/.env` to ensure cross-platform compatibility (Linux, macOS, Windows).
@@ -113,15 +120,13 @@ The default `~/.codex/auth.json` file is **not** auto-discovered unless `CODEX_F
 
 If the fallback returns HTTP 401, refresh the local Codex session with `codex login`. The plugin does not refresh tokens itself.
 
-`CODEX_RESPONSES_MODEL` optionally overrides the top-level Responses main model. Missing, empty, or whitespace-only values use the default `gpt-6.1-sol`; non-empty values are trimmed and used as custom model names. The `.env` setting is reread at the next image generation, so no rebuild is needed. Setting this model alone does not enable Codex fallback or change its auth opt-in. The plugin does not automatically retry with another Responses model.
+`CODEX_RESPONSES_MODEL` optionally overrides the model that drives the Codex request (not the image model). Leave it unset to use the built-in default. It has no effect unless `CODEX_FALLBACK_ENABLED=true`.
 
-Model settings have separate roles: `GEMINI_MODEL` selects the primary Gemini model, `OPENAI_MODEL` selects the OpenAI Images API image model, and `CODEX_RESPONSES_MODEL` selects the Codex top-level main model, not its image tool model.
-
-Codex fallback request settings (only the Responses main model is configurable):
+Codex fallback request settings (only the Responses model is configurable):
 
 | Setting | Value |
 |---|---|
-| Responses main model | `CODEX_RESPONSES_MODEL` (default: `gpt-6.1-sol`) |
+| Responses model | `CODEX_RESPONSES_MODEL` (default as of 0.3.0: `gpt-6.1-sol`) |
 | image tool model (fixed) | `gpt-image-2` |
 | size (fixed) | `2048x1152` |
 | quality (fixed) | `low` |
@@ -151,8 +156,8 @@ Describe what kind of images you want the AI to generate.
 
 | Parameter | Values | Default | Notes |
 |-----------|--------|---------|-------|
-| `aspect_ratio` | `1:1`, `2:3`, `3:2`, `3:4`, `4:3`, `4:5`, `5:4`, `9:16`, `16:9`, `21:9` | `1:1` | Works with all models |
-| `image_size` | `1K`, `2K`, `4K` | `1K` | Only works with `gemini-3-pro-image-preview` |
+| `aspect_ratio` | `1:1`, `2:3`, `3:2`, `3:4`, `4:3`, `4:5`, `5:4`, `9:16`, `16:9`, `21:9` | `1:1` | Applied only to some models; see the "Models" section |
+| `image_size` | `1K`, `2K`, `4K` | `1K` | Applied only to some models; see the "Models" section |
 
 #### Example Prompt Files
 
