@@ -4,7 +4,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { EnvConfig } from '../types';
+import { DEFAULT_CODEX_RESPONSES_MODEL, EnvConfig } from '../types';
 
 /**
  * Load and parse .env file from the filesystem
@@ -44,6 +44,7 @@ export function loadEnvFile(envFilePath: string): EnvConfig {
 		llmProvider: env['LLM_PROVIDER'] || 'gemini',
 		geminiApiKey,
 		geminiModel,
+		codexResponsesModel: env['CODEX_RESPONSES_MODEL']?.trim() || DEFAULT_CODEX_RESPONSES_MODEL,
 	};
 
 	const openaiApiKey = env['OPENAI_API_KEY'];

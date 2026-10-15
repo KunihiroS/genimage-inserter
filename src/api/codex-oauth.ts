@@ -2,7 +2,7 @@
  * Codex OAuth image-generation fallback client.
  */
 
-import { EnvConfig, GeneratedImage, AspectRatio, ImageSize } from '../types';
+import { DEFAULT_CODEX_RESPONSES_MODEL, EnvConfig, GeneratedImage, AspectRatio, ImageSize } from '../types';
 import { Logger } from '../utils/logger';
 import { requestUrl } from 'obsidian';
 import * as fs from 'fs';
@@ -53,7 +53,6 @@ interface PngDimensions {
 }
 
 const CODEX_RESPONSES_URL = 'https://chatgpt.com/backend-api/codex/responses';
-const CODEX_RESPONSES_MODEL = 'gpt-5.5';
 const CODEX_IMAGE_MODEL = 'gpt-image-2';
 const CODEX_IMAGE_SIZE = '2048x1152';
 const CODEX_IMAGE_QUALITY = 'low';
@@ -225,7 +224,7 @@ export class CodexOAuthImageClient {
 		}
 
 		const body = {
-			model: CODEX_RESPONSES_MODEL,
+			model: this.config.codexResponsesModel?.trim() || DEFAULT_CODEX_RESPONSES_MODEL,
 			instructions: systemPrompt,
 			input: [{
 				role: 'user',
