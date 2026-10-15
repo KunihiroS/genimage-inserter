@@ -205,6 +205,36 @@ ${setting}`);
 		expect(loadEnvFile('/test/model.env')).toMatchObject({ codexResponsesModel: 'gpt-6.1-sol' });
 	});
 
+
+	it.each([
+		['"future-model" # override', 'future-model'],
+		["'future-model' # override", 'future-model'],
+		['"future-model"#override', 'future-model'],
+		['"" # use default', 'gpt-6.1-sol'],
+		['"   " # use default', 'gpt-6.1-sol'],
+		['"future # literal" # override', 'future # literal'],
+		["'future # literal' # override", 'future # literal'],
+	])('should normalize quoted Responses setting %s without including its trailing comment', (value, expected) => {
+		vi.mocked(fs.existsSync).mockReturnValue(true);
+		vi.mocked(fs.readFileSync).mockReturnValue(`GEMINI_API_KEY=gk\nGEMINI_MODEL=gm\nCODEX_RESPONSES_MODEL=${value}`);
+
+		expect(loadEnvFile('/test/model.env').codexResponsesModel).toBe(expected);
+	});
+
+	it('should preserve quoted provider values and hashes while excluding their trailing comments', () => {
+		vi.mocked(fs.existsSync).mockReturnValue(true);
+		vi.mocked(fs.readFileSync).mockReturnValue(`
+GEMINI_API_KEY="fixture # literal" # key comment
+GEMINI_MODEL="gemini-custom" # primary
+OPENAI_API_KEY=test-openai-key
+OPENAI_MODEL='gpt-image-2' # fallback
+`);
+
+		expect(loadEnvFile('/test/model.env')).toMatchObject({
+			geminiApiKey: 'fixture # literal', geminiModel: 'gemini-custom', openaiModel: 'gpt-image-2',
+		});
+	});
+
 	it('should trim the Codex Responses model independently of other provider models', () => {
 		vi.mocked(fs.existsSync).mockReturnValue(true);
 		vi.mocked(fs.readFileSync).mockReturnValue(`

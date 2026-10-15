@@ -109,6 +109,9 @@ describe('CodexOAuthImageClient', () => {
 			['CODEX_RESPONSES_MODEL=', 'gpt-6.1-sol'],
 			['CODEX_RESPONSES_MODEL="   "', 'gpt-6.1-sol'],
 			['CODEX_RESPONSES_MODEL="  future-main-model  "', 'future-main-model'],
+			['CODEX_RESPONSES_MODEL="future-main-model" # override', 'future-main-model'],
+			["CODEX_RESPONSES_MODEL='future-main-model' # override", 'future-main-model'],
+			['CODEX_RESPONSES_MODEL="" # default', 'gpt-6.1-sol'],
 		])('should carry .env setting %j through the real loader into the request', async (setting, expected) => {
 			vi.mocked(fs.existsSync).mockReturnValue(true);
 			vi.mocked(fs.readFileSync).mockReturnValue(`GEMINI_API_KEY=gk\nGEMINI_MODEL=gemini-other\nOPENAI_MODEL=image-other\nCODEX_ACCESS_TOKEN=test-token\n${setting}`);
