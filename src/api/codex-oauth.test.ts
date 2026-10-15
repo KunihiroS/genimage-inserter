@@ -2,11 +2,12 @@
  * Tests for Codex OAuth image-generation fallback client
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { RequestUrlParam, RequestUrlResponse } from 'obsidian';
 import { requestUrl } from 'obsidian';
 import * as fs from 'fs';
 import { CodexOAuthImageClient } from './codex-oauth';
+import { loadEnvFile } from '../utils/env-loader';
 import { EnvConfig } from '../types';
 import { Logger } from '../utils/logger';
 
@@ -66,11 +67,97 @@ describe('CodexOAuthImageClient', () => {
 
 	beforeEach(() => {
 		vi.resetAllMocks();
+		vi.useFakeTimers();
 		vi.mocked(fs.existsSync).mockReturnValue(false);
 		mockLogger = createMockLogger();
 	});
 
+	afterEach(() => {
+		vi.clearAllTimers();
+		vi.useRealTimers();
+	});
+
 	describe('generateImage', () => {
+		it.each([
+			[undefined, 'gpt-6.1-sol'],
+			['', 'gpt-6.1-sol'],
+			['   ', 'gpt-6.1-sol'],
+			['future-main-model', 'future-main-model'],
+			['  future-main-model  ', 'future-main-model'],
+		])('should send Responses model %j as %s without changing the image tool', async (configured, expected) => {
+			vi.mocked(requestUrl).mockResolvedValue({
+				status: 200,
+				text: `data: {"item":{"type":"image_generation_call","result":"${pngBase64}"}}\n\n`,
+				json: {},
+			} as unknown as RequestUrlResponse);
+			const client = new CodexOAuthImageClient(
+				baseConfig({ codexResponsesModel: configured }), mockLogger as unknown as Logger, 300_000
+			);
+
+			await client.generateImage('sys', 'user', '16:9', '1K');
+
+			const body = JSON.parse(firstRequest().body as string) as { model: string; tools: unknown[] };
+			expect(body.model).toBe(expected);
+			expect(body.tools).toEqual([{
+				type: 'image_generation', model: 'gpt-image-2', size: '2048x1152', quality: 'low', output_format: 'png',
+			}]);
+			expect(requestUrl).toHaveBeenCalledTimes(1);
+		});
+
+		it.each([
+			['', 'gpt-6.1-sol'],
+			['CODEX_RESPONSES_MODEL=', 'gpt-6.1-sol'],
+			['CODEX_RESPONSES_MODEL="   "', 'gpt-6.1-sol'],
+			['CODEX_RESPONSES_MODEL="  future-main-model  "', 'future-main-model'],
+			['CODEX_RESPONSES_MODEL="future-main-model" # override', 'future-main-model'],
+			["CODEX_RESPONSES_MODEL='future-main-model' # override", 'future-main-model'],
+			['CODEX_RESPONSES_MODEL="" # default', 'gpt-6.1-sol'],
+		])('should carry .env setting %j through the real loader into the request', async (setting, expected) => {
+			vi.mocked(fs.existsSync).mockReturnValue(true);
+			vi.mocked(fs.readFileSync).mockReturnValue(`GEMINI_API_KEY=gk\nGEMINI_MODEL=gemini-other\nOPENAI_MODEL=image-other\nCODEX_ACCESS_TOKEN=test-token\n${setting}`);
+			vi.mocked(requestUrl).mockResolvedValue({
+				status: 200,
+				text: `data: {"item":{"type":"image_generation_call","result":"${pngBase64}"}}\n\n`,
+				json: {},
+			} as unknown as RequestUrlResponse);
+			const client = new CodexOAuthImageClient(loadEnvFile('/test/model.env'), mockLogger as unknown as Logger, 300_000);
+
+			await client.generateImage('sys', 'user', '16:9', '1K');
+
+			expect(JSON.parse(firstRequest().body as string)).toMatchObject({ model: expected });
+		});
+
+		it('should not enable auth-file discovery when only the Responses model is configured', async () => {
+			const client = new CodexOAuthImageClient(baseConfig({
+				codexResponsesModel: 'future-main-model', codexAccessToken: undefined,
+				codexAccountId: undefined, codexAuthFilePath: undefined, codexFallbackEnabled: false,
+			}), mockLogger as unknown as Logger, 300_000);
+
+			await expect(client.generateImage('sys', 'user', '1:1', '1K')).rejects.toThrow(/not enabled/);
+			expect(fs.existsSync).not.toHaveBeenCalled();
+			expect(requestUrl).not.toHaveBeenCalled();
+		});
+
+		it.each([400, 401])('should surface HTTP %i without retrying a different model or logging response secrets', async (status) => {
+			vi.mocked(requestUrl).mockResolvedValue({ status, text: 'private-response-fixture', json: {} } as unknown as RequestUrlResponse);
+			const client = new CodexOAuthImageClient(baseConfig({ codexResponsesModel: 'unavailable-model' }), mockLogger as unknown as Logger, 300_000);
+
+			await expect(client.generateImage('sys', 'private-note-fixture', '1:1', '1K')).rejects.toThrow(`Codex OAuth API error: HTTP ${status}`);
+			expect(requestUrl).toHaveBeenCalledTimes(1);
+			expect(mockLogger.error).toHaveBeenCalledWith('Codex OAuth API HTTP error', { status, bodyLength: 24 });
+			expect(JSON.stringify(mockLogger.error.mock.calls)).not.toMatch(/private-response-fixture|private-note-fixture|codex-token/);
+		});
+
+		it('should surface a timeout without retrying a different Responses model', async () => {
+			vi.mocked(requestUrl).mockReturnValue(new Promise(() => {}) as ReturnType<typeof requestUrl>);
+			const client = new CodexOAuthImageClient(baseConfig({ codexResponsesModel: 'slow-model' }), mockLogger as unknown as Logger, 10);
+			const rejection = expect(client.generateImage('sys', 'user', '1:1', '1K')).rejects.toThrow('Request timed out after 0.01 seconds');
+
+			await vi.advanceTimersByTimeAsync(10);
+			await rejection;
+			expect(requestUrl).toHaveBeenCalledTimes(1);
+		});
+
 		it('should POST fixed Codex image settings and include aspect ratio as a prompt steering hint', async () => {
 			vi.mocked(requestUrl).mockResolvedValue({
 				status: 200,
@@ -107,7 +194,7 @@ describe('CodexOAuthImageClient', () => {
 				stream: boolean;
 				store: boolean;
 			};
-			expect(body.model).toBe('gpt-5.5');
+			expect(body.model).toBe('gpt-6.1-sol');
 			expect(body.instructions).toContain('System prompt');
 			expect(body.input).toHaveLength(1);
 			expect(body.input[0]?.content).toHaveLength(1);

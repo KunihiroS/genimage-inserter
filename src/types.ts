@@ -8,6 +8,9 @@ export type AspectRatio = '1:1' | '2:3' | '3:2' | '3:4' | '4:3' | '4:5' | '5:4' 
 /** Valid image size values for Gemini image generation */
 export type ImageSize = '1K' | '2K' | '4K';
 
+/** Default main model for the Codex Responses image-generation route. */
+export const DEFAULT_CODEX_RESPONSES_MODEL = 'gpt-6.1-sol';
+
 /** Configuration loaded from .env file */
 export interface EnvConfig {
 	llmProvider: string;
@@ -19,6 +22,8 @@ export interface EnvConfig {
 	openaiModel?: string;
 	/** OpenAI-compatible base URL (defaults to https://api.openai.com/v1 when openaiApiKey is set) */
 	openaiBaseUrl?: string;
+	/** Codex Responses main model (optional; blank values use the default) */
+	codexResponsesModel?: string;
 	/** Codex/ChatGPT OAuth access token for image-generation fallback (optional) */
 	codexAccessToken?: string;
 	/** Codex/ChatGPT account ID header for image-generation fallback (optional) */

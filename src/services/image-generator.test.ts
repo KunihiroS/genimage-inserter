@@ -405,6 +405,7 @@ describe('ImageGeneratorService', () => {
 			expect(result).not.toBeNull();
 			expect(mockOpenAIConstructor).not.toHaveBeenCalled();
 			expect(mockOpenAIGenerateImage).not.toHaveBeenCalled();
+			expect(mockCodexConstructor).not.toHaveBeenCalled();
 		});
 
 		it('should fall back to OpenAI when Gemini fails and OPENAI_API_KEY is present', async () => {
@@ -427,6 +428,7 @@ describe('ImageGeneratorService', () => {
 				expect.objectContaining({ geminiError: 'Gemini API error: HTTP 503' }) as unknown
 			);
 			expect(mockLogger.info).toHaveBeenCalledWith('OpenAI fallback succeeded');
+			expect(mockCodexConstructor).not.toHaveBeenCalled();
 		});
 
 		it('should throw combined Gemini and Codex errors when OPENAI_API_KEY is absent and Codex is unavailable', async () => {
@@ -483,6 +485,47 @@ describe('ImageGeneratorService', () => {
 			mockApp.vault.createBinary.mockResolvedValue(undefined);
 		}
 
+		it('should pass the reloaded .env Responses model to Codex on each generation', async () => {
+			const { mkdtempSync, writeFileSync, rmSync } = await import('fs');
+			const { tmpdir } = await import('os');
+			const path = await import('path');
+			const actualEnvLoader = await vi.importActual<typeof import('../utils/env-loader')>('../utils/env-loader');
+			const directory = mkdtempSync(path.join(tmpdir(), 'genimage-model-test-'));
+			const envFilePath = path.join(directory, 'model.env');
+			setupSuccessfulFlow(envWithCodex);
+			vi.mocked(loadEnvFile).mockImplementation(envPath => actualEnvLoader.loadEnvFile(envPath));
+			service.updateSettings({ ...validSettings, envFilePath });
+			mockGenerateImage.mockRejectedValue(new Error('Gemini API error: HTTP 503'));
+			mockCodexGenerateImage.mockResolvedValue(codexImage);
+
+			try {
+				for (const [index, model] of ['first-model', 'second-model'].entries()) {
+					writeFileSync(envFilePath, `GEMINI_API_KEY=gk\nGEMINI_MODEL=gm\nCODEX_FALLBACK_ENABLED=true\nCODEX_RESPONSES_MODEL=${model}`);
+					await service.generate('synthetic text', 'test-note');
+
+					expect(mockCodexConstructor).toHaveBeenNthCalledWith(index + 1, expect.objectContaining({
+						codexResponsesModel: model, codexFallbackEnabled: true,
+					}), mockLogger, validSettings.requestTimeoutSeconds * 1000);
+				}
+				expect(mockOpenAIConstructor).not.toHaveBeenCalled();
+			} finally {
+				rmSync(directory, { recursive: true, force: true });
+			}
+		});
+
+		it.each(['Codex OAuth API error: HTTP 400', 'Codex OAuth API error: HTTP 401', 'Request timed out after 180 seconds'])(
+			'should preserve the Codex failure notification without retry: %s', async (message) => {
+				setupSuccessfulFlow(envWithCodex);
+				mockGenerateImage.mockRejectedValue(new Error('Gemini API error: HTTP 503'));
+				mockCodexGenerateImage.mockRejectedValue(new Error(message));
+				const combined = `Gemini failed: Gemini API error: HTTP 503; Codex OAuth fallback failed: ${message}`;
+
+				await expect(service.generate('synthetic text', 'test-note')).rejects.toThrow(combined);
+				expect(Notice).toHaveBeenCalledWith(`Failed to generate image: ${combined}`);
+				expect(mockCodexGenerateImage).toHaveBeenCalledTimes(1);
+			}
+		);
+
 		it('should use Codex OAuth fallback when Gemini fails and OpenAI key is absent', async () => {
 			setupSuccessfulFlow(envWithCodex);
 			mockGenerateImage.mockRejectedValue(new Error('Gemini API error: HTTP 503'));
@@ -513,6 +556,7 @@ describe('ImageGeneratorService', () => {
 			expect(result).not.toBeNull();
 			expect(mockOpenAIConstructor).toHaveBeenCalledTimes(1);
 			expect(mockCodexConstructor).toHaveBeenCalledTimes(1);
+			expect(mockOpenAIGenerateImage.mock.invocationCallOrder[0]).toBeLessThan(mockCodexGenerateImage.mock.invocationCallOrder[0]!);
 			expect(mockLogger.info).toHaveBeenCalledWith('Codex OAuth fallback succeeded');
 		});
 	});

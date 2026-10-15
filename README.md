@@ -61,6 +61,8 @@ GEMINI_MODEL=gemini-3-pro-image-preview
 # Optional: Codex OAuth fallback (see "Codex OAuth fallback" section below)
 # After `codex login`, this single flag is all you need:
 # CODEX_FALLBACK_ENABLED=true
+# Optional: override the Codex top-level Responses main model
+# CODEX_RESPONSES_MODEL=gpt-6.1-sol
 ```
 
 **Recommended path**: Use `~/.config/genimage-inserter/.env` to ensure cross-platform compatibility (Linux, macOS, Windows).
@@ -111,15 +113,19 @@ The default `~/.codex/auth.json` file is **not** auto-discovered unless `CODEX_F
 
 If the fallback returns HTTP 401, refresh the local Codex session with `codex login`. The plugin does not refresh tokens itself.
 
-Codex fallback request settings are fixed:
+`CODEX_RESPONSES_MODEL` optionally overrides the top-level Responses main model. Missing, empty, or whitespace-only values use the default `gpt-6.1-sol`; non-empty values are trimmed and used as custom model names. The `.env` setting is reread at the next image generation, so no rebuild is needed. Setting this model alone does not enable Codex fallback or change its auth opt-in. The plugin does not automatically retry with another Responses model.
+
+Model settings have separate roles: `GEMINI_MODEL` selects the primary Gemini model, `OPENAI_MODEL` selects the OpenAI Images API image model, and `CODEX_RESPONSES_MODEL` selects the Codex top-level main model, not its image tool model.
+
+Codex fallback request settings (only the Responses main model is configurable):
 
 | Setting | Value |
 |---|---|
-| responses model | `gpt-5.5` |
-| image model | `gpt-image-2` |
-| size | `2048x1152` |
-| quality | `low` |
-| output format | `png` |
+| Responses main model | `CODEX_RESPONSES_MODEL` (default: `gpt-6.1-sol`) |
+| image tool model (fixed) | `gpt-image-2` |
+| size (fixed) | `2048x1152` |
+| quality (fixed) | `low` |
+| output format (fixed) | `png` |
 
 The `size` value is a request setting sent to the private ChatGPT/Codex backend, not a guaranteed output dimension. The backend usually returns the requested shape, but it may return a different actual PNG size such as `864x1821`. The plugin reads the generated PNG dimensions and writes both the requested size and actual size to the debug log. A size mismatch is logged as a warning and does not fail generation.
 

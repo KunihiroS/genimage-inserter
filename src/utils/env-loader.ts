@@ -4,7 +4,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { EnvConfig } from '../types';
+import { DEFAULT_CODEX_RESPONSES_MODEL, EnvConfig } from '../types';
 
 /**
  * Load and parse .env file from the filesystem
@@ -44,6 +44,7 @@ export function loadEnvFile(envFilePath: string): EnvConfig {
 		llmProvider: env['LLM_PROVIDER'] || 'gemini',
 		geminiApiKey,
 		geminiModel,
+		codexResponsesModel: env['CODEX_RESPONSES_MODEL']?.trim() || DEFAULT_CODEX_RESPONSES_MODEL,
 	};
 
 	const openaiApiKey = env['OPENAI_API_KEY'];
@@ -100,16 +101,16 @@ function parseEnvContent(content: string): Record<string, string> {
 		const key = trimmed.slice(0, eqIndex).trim();
 		let value = trimmed.slice(eqIndex + 1).trim();
 
-		// Remove surrounding quotes if present
-		if ((value.startsWith('"') && value.endsWith('"')) ||
-			(value.startsWith("'") && value.endsWith("'"))) {
-			value = value.slice(1, -1);
-		}
-
-		// Remove inline comments (but not if inside quotes - simplified handling)
-		const commentIndex = value.indexOf(' #');
-		if (commentIndex !== -1) {
-			value = value.slice(0, commentIndex).trim();
+		// Match quoted values together with an optional trailing comment.
+		// A hash inside the quotes is part of the value, not a comment.
+		const quotedValue = value.match(/^(['"])(.*?)\1(?:\s*#.*)?$/);
+		if (quotedValue) {
+			value = quotedValue[2] ?? '';
+		} else {
+			const commentIndex = value.indexOf(' #');
+			if (commentIndex !== -1) {
+				value = value.slice(0, commentIndex).trim();
+			}
 		}
 
 		result[key] = value;

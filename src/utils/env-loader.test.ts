@@ -56,6 +56,7 @@ GEMINI_MODEL=gemini-2.5-flash-image
 			llmProvider: 'gemini',
 			geminiApiKey: 'my-secret-key',
 			geminiModel: 'gemini-2.5-flash-image',
+			codexResponsesModel: 'gpt-6.1-sol',
 		});
 	});
 
@@ -189,6 +190,80 @@ OPENAI_BASE_URL=https://proxy.example.com/v1
 		expect(result.openaiApiKey).toBeUndefined();
 		expect(result.openaiModel).toBeUndefined();
 		expect(result.openaiBaseUrl).toBeUndefined();
+	});
+
+	it.each([
+		['missing', ''],
+		['empty', 'CODEX_RESPONSES_MODEL='],
+		['whitespace', 'CODEX_RESPONSES_MODEL="   "'],
+	])('should default the Codex Responses model when %s', (_name, setting) => {
+		vi.mocked(fs.existsSync).mockReturnValue(true);
+		vi.mocked(fs.readFileSync).mockReturnValue(`GEMINI_API_KEY=gk
+GEMINI_MODEL=gm
+${setting}`);
+
+		expect(loadEnvFile('/test/model.env')).toMatchObject({ codexResponsesModel: 'gpt-6.1-sol' });
+	});
+
+
+	it.each([
+		['"future-model" # override', 'future-model'],
+		["'future-model' # override", 'future-model'],
+		['"future-model"#override', 'future-model'],
+		['"" # use default', 'gpt-6.1-sol'],
+		['"   " # use default', 'gpt-6.1-sol'],
+		['"future # literal" # override', 'future # literal'],
+		["'future # literal' # override", 'future # literal'],
+	])('should normalize quoted Responses setting %s without including its trailing comment', (value, expected) => {
+		vi.mocked(fs.existsSync).mockReturnValue(true);
+		vi.mocked(fs.readFileSync).mockReturnValue(`GEMINI_API_KEY=gk\nGEMINI_MODEL=gm\nCODEX_RESPONSES_MODEL=${value}`);
+
+		expect(loadEnvFile('/test/model.env').codexResponsesModel).toBe(expected);
+	});
+
+	it('should preserve quoted provider values and hashes while excluding their trailing comments', () => {
+		vi.mocked(fs.existsSync).mockReturnValue(true);
+		vi.mocked(fs.readFileSync).mockReturnValue(`
+GEMINI_API_KEY="fixture # literal" # key comment
+GEMINI_MODEL="gemini-custom" # primary
+OPENAI_API_KEY=test-openai-key
+OPENAI_MODEL='gpt-image-2' # fallback
+`);
+
+		expect(loadEnvFile('/test/model.env')).toMatchObject({
+			geminiApiKey: 'fixture # literal', geminiModel: 'gemini-custom', openaiModel: 'gpt-image-2',
+		});
+	});
+
+	it('should trim the Codex Responses model independently of other provider models', () => {
+		vi.mocked(fs.existsSync).mockReturnValue(true);
+		vi.mocked(fs.readFileSync).mockReturnValue(`
+GEMINI_API_KEY=gk
+GEMINI_MODEL=gemini-custom
+OPENAI_API_KEY=test-openai-key
+OPENAI_MODEL=gpt-image-2
+CODEX_RESPONSES_MODEL="  future-responses-model  "
+`);
+
+		expect(loadEnvFile('/test/model.env')).toMatchObject({
+			geminiModel: 'gemini-custom',
+			openaiModel: 'gpt-image-2',
+			codexResponsesModel: 'future-responses-model',
+		});
+	});
+
+	it('should reread the Codex model without enabling OAuth when only the model is configured', () => {
+		vi.mocked(fs.existsSync).mockReturnValue(true);
+		vi.mocked(fs.readFileSync)
+			.mockReturnValueOnce('GEMINI_API_KEY=gk\nGEMINI_MODEL=gm\nCODEX_RESPONSES_MODEL=first-model')
+			.mockReturnValueOnce('GEMINI_API_KEY=gk\nGEMINI_MODEL=gm\nCODEX_RESPONSES_MODEL=second-model');
+
+		expect(loadEnvFile('/test/model.env')).toMatchObject({ codexResponsesModel: 'first-model' });
+		const reloaded = loadEnvFile('/test/model.env');
+		expect(reloaded).toMatchObject({ codexResponsesModel: 'second-model' });
+		expect(reloaded.codexFallbackEnabled).toBeUndefined();
+		expect(reloaded.codexAccessToken).toBeUndefined();
+		expect(reloaded.codexAuthFilePath).toBeUndefined();
 	});
 
 	it('should parse optional Codex OAuth fallback settings', () => {
