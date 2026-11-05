@@ -99,7 +99,7 @@ describe('CodexOAuthImageClient', () => {
 			const body = JSON.parse(firstRequest().body as string) as { model: string; tools: unknown[] };
 			expect(body.model).toBe(expected);
 			expect(body.tools).toEqual([{
-				type: 'image_generation', model: 'gpt-image-2', size: '2048x1152', quality: 'low', output_format: 'png',
+				type: 'image_generation', model: 'gpt-image-2.6-sunburst', size: '2048x1152', quality: 'low', output_format: 'png',
 			}]);
 			expect(requestUrl).toHaveBeenCalledTimes(1);
 		});
@@ -204,7 +204,7 @@ describe('CodexOAuthImageClient', () => {
 			expect(body.tools).toEqual([
 				{
 					type: 'image_generation',
-					model: 'gpt-image-2',
+					model: 'gpt-image-2.6-sunburst',
 					size: '2048x1152',
 					quality: 'low',
 					output_format: 'png',

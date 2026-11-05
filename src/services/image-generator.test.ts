@@ -379,7 +379,7 @@ describe('ImageGeneratorService', () => {
 			geminiApiKey: 'gk',
 			geminiModel: 'gm',
 			openaiApiKey: 'sk-openai',
-			openaiModel: 'gpt-image-2',
+			openaiModel: 'gpt-image-2.6-sunburst',
 			openaiBaseUrl: 'https://api.openai.com/v1',
 		};
 		const envWithoutOpenAI = {
@@ -416,7 +416,7 @@ describe('ImageGeneratorService', () => {
 			const result = await service.generate('text', 'note');
 
 			expect(result).not.toBeNull();
-			expect(mockOpenAIConstructor).toHaveBeenCalledTimes(1);
+			expect(mockOpenAIConstructor).toHaveBeenCalledWith(envWithOpenAI, mockLogger, validSettings.requestTimeoutSeconds * 1000);
 			expect(mockOpenAIGenerateImage).toHaveBeenCalledWith(
 				mockPrompt.content,
 				'text',
@@ -473,7 +473,7 @@ describe('ImageGeneratorService', () => {
 		const envWithOpenAIAndCodex = {
 			...envWithCodex,
 			openaiApiKey: 'sk-openai',
-			openaiModel: 'gpt-image-2',
+			openaiModel: 'gpt-image-2.6-sunburst',
 			openaiBaseUrl: 'https://api.openai.com/v1',
 		};
 
@@ -556,6 +556,7 @@ describe('ImageGeneratorService', () => {
 			expect(result).not.toBeNull();
 			expect(mockOpenAIConstructor).toHaveBeenCalledTimes(1);
 			expect(mockCodexConstructor).toHaveBeenCalledTimes(1);
+			expect(mockGenerateImage.mock.invocationCallOrder[0]).toBeLessThan(mockOpenAIGenerateImage.mock.invocationCallOrder[0]!);
 			expect(mockOpenAIGenerateImage.mock.invocationCallOrder[0]).toBeLessThan(mockCodexGenerateImage.mock.invocationCallOrder[0]!);
 			expect(mockLogger.info).toHaveBeenCalledWith('Codex OAuth fallback succeeded');
 		});

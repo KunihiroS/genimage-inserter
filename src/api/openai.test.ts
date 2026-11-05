@@ -39,7 +39,6 @@ function baseConfig(overrides: Partial<EnvConfig> = {}): EnvConfig {
 		geminiApiKey: 'gk',
 		geminiModel: 'gm',
 		openaiApiKey: 'sk-test',
-		openaiModel: 'gpt-image-2',
 		openaiBaseUrl: 'https://api.openai.com/v1',
 		...overrides,
 	};
@@ -111,13 +110,28 @@ describe('OpenAIClient', () => {
 				n: number;
 				response_format?: string;
 			};
-			expect(body.model).toBe('gpt-image-2');
+			expect(body.model).toBe('gpt-image-2.6-sunburst');
 			expect(body.prompt).toContain('System prompt');
 			expect(body.prompt).toContain('User text');
 			expect(body.size).toBe('1024x1024');
 			expect(body.n).toBe(1);
 			// gpt-image models do not accept response_format (DALL-E only)
 			expect(body.response_format).toBeUndefined();
+		});
+
+		it.each(['gpt-image-2.6-sunburst', 'gpt-image-2'])('should preserve explicit image model %s', async (model) => {
+			vi.mocked(requestUrl).mockResolvedValue({
+				status: 200,
+				json: { data: [{ b64_json: 'AAAA' }] },
+			} as unknown as RequestUrlResponse);
+			const client = new OpenAIClient(baseConfig({ openaiModel: model }), mockLogger as unknown as Logger, 180_000);
+
+			await client.generateImage('sys', 'user', '16:9', '1K');
+
+			expect(JSON.parse(firstRequest().body as string)).toEqual({
+				model, prompt: 'sys\n\n---\n\nuser', size: '1536x864', n: 1,
+			});
+			expect(requestUrl).toHaveBeenCalledTimes(1);
 		});
 
 		it('should throw when response contains no image data', async () => {

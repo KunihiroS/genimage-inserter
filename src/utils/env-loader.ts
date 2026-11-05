@@ -50,7 +50,7 @@ export function loadEnvFile(envFilePath: string): EnvConfig {
 	const openaiApiKey = env['OPENAI_API_KEY'];
 	if (openaiApiKey) {
 		config.openaiApiKey = openaiApiKey;
-		config.openaiModel = env['OPENAI_MODEL'] || 'gpt-image-2';
+		config.openaiModel = env['OPENAI_MODEL'] || 'gpt-image-2.6-sunburst';
 		config.openaiBaseUrl = (env['OPENAI_BASE_URL'] || 'https://api.openai.com/v1').replace(/\/+$/, '');
 	}
 

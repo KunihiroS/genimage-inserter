@@ -53,9 +53,9 @@ export class OpenAIClient {
 		const baseUrl = (this.config.openaiBaseUrl ?? 'https://api.openai.com/v1').replace(/\/+$/, '');
 		const url = `${baseUrl}/images/generations`;
 		const apiKey = this.config.openaiApiKey ?? '';
-		const model = this.config.openaiModel ?? 'gpt-image-2';
-		if (model !== 'gpt-image-2') {
-			throw new Error('Only gpt-image-2 is supported by the OpenAI fallback. Set OPENAI_MODEL to gpt-image-2 or omit it.');
+		const model = this.config.openaiModel ?? 'gpt-image-2.6-sunburst';
+		if (model !== 'gpt-image-2.6-sunburst' && model !== 'gpt-image-2') {
+			throw new Error('Only gpt-image-2.6-sunburst and gpt-image-2 are supported by the OpenAI fallback. Set OPENAI_MODEL to gpt-image-2.6-sunburst or omit it.');
 		}
 
 		const size = mapAspectRatioToSize(aspectRatio, this.logger);

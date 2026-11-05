@@ -18,7 +18,7 @@ export interface EnvConfig {
 	geminiModel: string;
 	/** OpenAI API key for fallback image generation (optional) */
 	openaiApiKey?: string;
-	/** OpenAI image model (defaults to gpt-image-2 when openaiApiKey is set) */
+	/** OpenAI image model (defaults to gpt-image-2.6-sunburst when openaiApiKey is set) */
 	openaiModel?: string;
 	/** OpenAI-compatible base URL (defaults to https://api.openai.com/v1 when openaiApiKey is set) */
 	openaiBaseUrl?: string;

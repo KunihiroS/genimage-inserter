@@ -53,7 +53,7 @@ interface PngDimensions {
 }
 
 const CODEX_RESPONSES_URL = 'https://chatgpt.com/backend-api/codex/responses';
-const CODEX_IMAGE_MODEL = 'gpt-image-2';
+const CODEX_IMAGE_MODEL = 'gpt-image-2.6-sunburst';
 const CODEX_IMAGE_SIZE = '2048x1152';
 const CODEX_IMAGE_QUALITY = 'low';
 const CODEX_IMAGE_FORMAT = 'png';

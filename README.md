@@ -62,7 +62,7 @@ GEMINI_MODEL=gemini-3-pro-image # example; see the "Models" section
 
 # Optional: OpenAI fallback (see "OpenAI fallback" section below)
 # OPENAI_API_KEY=sk-...
-# OPENAI_MODEL=gpt-image-2
+# OPENAI_MODEL=gpt-image-2.6-sunburst
 # OPENAI_BASE_URL=https://api.openai.com/v1
 
 # Optional: Codex OAuth fallback (see "Codex OAuth fallback" section below)
@@ -83,12 +83,14 @@ If `OPENAI_API_KEY` is set in your `.env`, the plugin automatically retries via 
 | Variable | Description | Default |
 |---|---|---|
 | `OPENAI_API_KEY` | Enables the fallback. Omit to disable. | — (disabled) |
-| `OPENAI_MODEL` | OpenAI image model. Only `gpt-image-2` is supported by this fallback. | `gpt-image-2` |
+| `OPENAI_MODEL` | OpenAI image model. Supports `gpt-image-2.6-sunburst` and an explicit `gpt-image-2` override. | `gpt-image-2.6-sunburst` |
 | `OPENAI_BASE_URL` | OpenAI-compatible base URL. Useful for proxies that expose the exact OpenAI API shape. | `https://api.openai.com/v1` |
 
-Only `gpt-image-2` is supported by the OpenAI fallback. Do not set `OPENAI_MODEL` to `gpt-image-1`, `gpt-image-1.5`, `gpt-image-1-mini`, `dall-e-2`, or `dall-e-3`; those models have different size or response contracts.
+The OpenAI fallback defaults to `gpt-image-2.6-sunburst`. An explicit `OPENAI_MODEL=gpt-image-2` remains unchanged; it is not automatically migrated. To use Sunburst, change only that setting to `OPENAI_MODEL=gpt-image-2.6-sunburst` or remove the `OPENAI_MODEL` line to use the new default. Keep credentials unchanged and do not share your `.env` contents. The plugin reloads the file on the next generation.
 
-**Aspect ratio → OpenAI `size` mapping** (gpt-image-2 supports custom dimensions; sizes preserve the requested ratio using dimensions divisible by 16):
+Do not set `OPENAI_MODEL` to `gpt-image-1`, `gpt-image-1.5`, `gpt-image-1-mini`, `dall-e-2`, or `dall-e-3`; those models have different size or response contracts.
+
+**Aspect ratio → OpenAI `size` mapping** (unchanged for Sunburst and an explicit `gpt-image-2` override; sizes preserve the requested ratio using dimensions divisible by 16):
 
 | prompt `aspect_ratio` | OpenAI `size` |
 |---|---|
@@ -122,12 +124,12 @@ If the fallback returns HTTP 401, refresh the local Codex session with `codex lo
 
 `CODEX_RESPONSES_MODEL` optionally overrides the model that drives the Codex request (not the image model). Leave it unset to use the built-in default. It has no effect unless `CODEX_FALLBACK_ENABLED=true`.
 
-Codex fallback request settings (only the Responses model is configurable):
+Codex fallback request settings (only the Responses model is configurable; `OPENAI_MODEL` affects only the direct OpenAI fallback):
 
 | Setting | Value |
 |---|---|
 | Responses model | `CODEX_RESPONSES_MODEL` (default as of 0.3.0: `gpt-6.1-sol`) |
-| image tool model (fixed) | `gpt-image-2` |
+| image tool model (fixed) | `gpt-image-2.6-sunburst` |
 | size (fixed) | `2048x1152` |
 | quality (fixed) | `low` |
 | output format (fixed) | `png` |

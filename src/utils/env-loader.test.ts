@@ -130,18 +130,19 @@ GEMINI_MODEL=model
 		process.env.HOME = originalHome;
 	});
 
-	it('should populate OpenAI defaults when only OPENAI_API_KEY is set', () => {
+	it.each(['', 'OPENAI_MODEL=', 'OPENAI_MODEL="" # use default'])('should populate OpenAI defaults with setting %j', (setting) => {
 		vi.mocked(fs.existsSync).mockReturnValue(true);
 		vi.mocked(fs.readFileSync).mockReturnValue(`
 GEMINI_API_KEY=gk
 GEMINI_MODEL=gm
 OPENAI_API_KEY=sk-openai-test
+${setting}
 `);
 
 		const result = loadEnvFile('/path/to/.env');
 
 		expect(result.openaiApiKey).toBe('sk-openai-test');
-		expect(result.openaiModel).toBe('gpt-image-2');
+		expect(result.openaiModel).toBe('gpt-image-2.6-sunburst');
 		expect(result.openaiBaseUrl).toBe('https://api.openai.com/v1');
 	});
 
