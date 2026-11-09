@@ -1,10 +1,11 @@
 /**
- * Codex OAuth image-generation fallback client.
+ * Codex OAuth subscription image-generation client.
  */
 
 import { DEFAULT_CODEX_RESPONSES_MODEL, EnvConfig, GeneratedImage, AspectRatio, ImageSize } from '../types';
 import { Logger } from '../utils/logger';
 import { requestUrl } from 'obsidian';
+import { ImageGenerationError, remoteGenerationError, withGenerationTimeout, generationErrorPayload } from './generation-error';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -36,10 +37,10 @@ interface CodexImageGenerationItem {
 interface CodexSsePayload {
 	type?: string;
 	message?: string;
-	error?: { message?: string };
+	error?: { message?: string; code?: string };
 	item?: CodexImageGenerationItem;
 	response?: {
-		error?: { message?: string };
+		error?: { message?: string; code?: string };
 		output?: CodexImageGenerationItem[];
 	};
 }
@@ -91,23 +92,34 @@ function resolveHomePath(filePath: string): string {
 		: filePath;
 }
 
-function readCodexAuthFile(filePath: string, fallbackAccountId?: string): CodexAuth | null {
-	const resolvedPath = resolveHomePath(filePath);
-	if (!fs.existsSync(resolvedPath)) return null;
+function readCodexAuthFile(filePath: string, fallbackAccountId?: string): CodexAuth {
+	let raw: string;
+	try {
+		const resolvedPath = resolveHomePath(filePath);
+		if (!fs.existsSync(resolvedPath)) {
+			throw new ImageGenerationError({ category: 'auth_missing', stage: 'auth' });
+		}
+		raw = fs.readFileSync(resolvedPath, 'utf-8');
+	} catch (error) {
+		if (error instanceof ImageGenerationError) throw error;
+		throw new ImageGenerationError({ category: 'auth_unreadable', stage: 'auth' });
+	}
 
-	const raw = fs.readFileSync(resolvedPath, 'utf-8');
-	const parsed = JSON.parse(raw) as CodexAuthFile;
-	const accessToken = parsed.tokens?.access_token ?? parsed.access_token;
-	if (!accessToken) return null;
-
-	return {
-		accessToken,
-		accountId: parsed.tokens?.account_id ?? parsed.account_id ?? parsed.chatgpt_account_id ?? parsed.account?.id ?? fallbackAccountId,
-		source: 'auth-file',
-	};
+	try {
+		const parsed = JSON.parse(raw) as CodexAuthFile | null;
+		const accessToken = parsed?.tokens?.access_token ?? parsed?.access_token;
+		const accountId = parsed?.tokens?.account_id ?? parsed?.account_id ?? parsed?.chatgpt_account_id ?? parsed?.account?.id ?? fallbackAccountId;
+		if (typeof accessToken !== 'string' || !accessToken.trim() ||
+			(accountId !== undefined && (typeof accountId !== 'string' || !accountId.trim()))) {
+			throw new ImageGenerationError({ category: 'auth_invalid', stage: 'auth' });
+		}
+		return { accessToken, accountId, source: 'auth-file' };
+	} catch {
+		throw new ImageGenerationError({ category: 'auth_invalid', stage: 'auth' });
+	}
 }
 
-function resolveCodexAuth(config: EnvConfig): CodexAuth | null {
+function resolveCodexAuth(config: EnvConfig): CodexAuth {
 	if (config.codexAccessToken) {
 		return {
 			accessToken: config.codexAccessToken,
@@ -117,7 +129,7 @@ function resolveCodexAuth(config: EnvConfig): CodexAuth | null {
 	}
 
 	if (!config.codexAuthFilePath && !config.codexFallbackEnabled) {
-		throw new Error('Codex OAuth fallback is not enabled. Set CODEX_FALLBACK_ENABLED=true, CODEX_AUTH_FILE_PATH, or CODEX_ACCESS_TOKEN.');
+		throw new ImageGenerationError({ category: 'disabled', stage: 'auth' });
 	}
 
 	return readCodexAuthFile(config.codexAuthFilePath ?? '~/.codex/auth.json', config.codexAccountId);
@@ -127,20 +139,40 @@ function parsePngDimensions(b64: string): PngDimensions {
 	let bytes: Buffer;
 	try {
 		bytes = Buffer.from(b64, 'base64');
-	} catch (error) {
-		throw new Error(`Generated image is not valid base64: ${error instanceof Error ? error.message : String(error)}`);
+	} catch {
+		throw new ImageGenerationError({ category: 'invalid_image', stage: 'image' });
 	}
 
 	if (bytes.length < 24 || !bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) {
-		throw new Error('Generated image is not a PNG');
+		throw new ImageGenerationError({ category: 'invalid_image', stage: 'image' });
 	}
 
 	if (bytes.toString('ascii', 12, 16) !== 'IHDR') {
-		throw new Error('Generated PNG is missing IHDR dimensions');
+		throw new ImageGenerationError({ category: 'invalid_image', stage: 'image' });
 	}
 
 	const width = bytes.readUInt32BE(16);
 	const height = bytes.readUInt32BE(20);
+	// Check complete chunk boundaries so a truncated header is not saved as success.
+	let offset = 8;
+	let hasImageData = false;
+	let hasEnd = false;
+	while (offset + 12 <= bytes.length) {
+		const length = bytes.readUInt32BE(offset);
+		const next = offset + 12 + length;
+		if (next > bytes.length) break;
+		const type = bytes.toString('ascii', offset + 4, offset + 8);
+		if (offset === 8 && (type !== 'IHDR' || length !== 13)) break;
+		if (type === 'IDAT' && length > 0) hasImageData = true;
+		if (type === 'IEND') {
+			hasEnd = length === 0 && next === bytes.length;
+			break;
+		}
+		offset = next;
+	}
+	if (!width || !height || !hasImageData || !hasEnd) {
+		throw new ImageGenerationError({ category: 'invalid_image', stage: 'image' });
+	}
 	const divisor = greatestCommonDivisor(width, height);
 	return {
 		width,
@@ -152,6 +184,7 @@ function parsePngDimensions(b64: string): PngDimensions {
 }
 
 function parseCodexImageResult(sseText: string): string {
+	let image: string | undefined;
 	for (const line of sseText.split('\n')) {
 		const trimmed = line.trim();
 		if (!trimmed.startsWith('data:')) continue;
@@ -166,26 +199,28 @@ function parseCodexImageResult(sseText: string): string {
 			continue;
 		}
 
+		if (!payload || typeof payload !== 'object') continue;
+
 		if (payload.type === 'response.failed' || payload.type === 'response.incomplete' || payload.type === 'error') {
-			const message = payload.error?.message ?? payload.response?.error?.message ?? payload.message ?? 'unknown streamed error';
-			throw new Error(`Codex image generation failed: ${message}`);
+			throw remoteGenerationError(payload.response?.error ?? payload.error ?? {}, undefined, 'stream');
 		}
 
 		if (payload.item?.type === 'image_generation_call' && payload.item.result) {
-			return payload.item.result;
+			image ??= payload.item.result;
 		}
 
 		const output = payload.response?.output;
 		if (Array.isArray(output)) {
 			for (const item of output) {
-				if (item.type === 'image_generation_call' && item.result) {
-					return item.result;
+				if (item?.type === 'image_generation_call' && item.result) {
+					image ??= item.result;
 				}
 			}
 		}
 	}
 
-	throw new Error('No image was generated by Codex OAuth fallback.');
+	if (image) return image;
+	throw new ImageGenerationError({ category: 'no_image', stage: 'image' });
 }
 
 export class CodexOAuthImageClient {
@@ -202,11 +237,9 @@ export class CodexOAuthImageClient {
 		imageSize: ImageSize
 	): Promise<GeneratedImage> {
 		const auth = resolveCodexAuth(this.config);
-		if (!auth) {
-			throw new Error('Codex OAuth auth is not configured. Run codex login or set CODEX_ACCESS_TOKEN.');
-		}
 
-		this.logger.debug('Codex OAuth fallback uses fixed request settings and aspect ratio prompt steering', {
+		this.logger.debug('Codex OAuth uses fixed request settings and aspect ratio prompt steering', {
+			requestedImageModel: CODEX_IMAGE_MODEL,
 			aspectRatio,
 			imageSize,
 			size: CODEX_IMAGE_SIZE,
@@ -242,33 +275,22 @@ export class CodexOAuthImageClient {
 			store: false,
 		};
 
-		const timeoutPromise = new Promise<never>((_, reject) =>
-			setTimeout(
-				() => reject(new Error(`Request timed out after ${this.timeoutMs / 1000} seconds`)),
-				this.timeoutMs
-			)
-		);
-
-		const response = await Promise.race([
-			requestUrl({
-				url: CODEX_RESPONSES_URL,
-				method: 'POST',
-				headers,
-				body: JSON.stringify(body),
-				throw: false,
-			}),
-			timeoutPromise,
-		]);
+		const response = await withGenerationTimeout(() => requestUrl({
+			url: CODEX_RESPONSES_URL,
+			method: 'POST',
+			headers,
+			body: JSON.stringify(body),
+			throw: false,
+		}), this.timeoutMs);
 
 		if (response.status >= 400) {
-			this.logger.error('Codex OAuth API HTTP error', {
-				status: response.status,
-				bodyLength: response.text?.length ?? 0,
-			});
+			const payload = generationErrorPayload(response);
+			const failure = remoteGenerationError(payload, response.status);
+			this.logger.error('Codex OAuth API HTTP error', failure.details);
 			if (response.status === 401 && auth.source === 'auth-file') {
-				throw new Error('Codex OAuth auth-file token may be expired. Run `codex login` or set CODEX_ACCESS_TOKEN with a fresh token.');
+				failure.message += '. Run `codex login` or set CODEX_ACCESS_TOKEN with a fresh token.';
 			}
-			throw new Error(`Codex OAuth API error: HTTP ${response.status}`);
+			throw failure;
 		}
 
 		const data = parseCodexImageResult(response.text ?? '');

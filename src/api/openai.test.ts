@@ -8,6 +8,7 @@ import { requestUrl } from 'obsidian';
 import { OpenAIClient } from './openai';
 import { EnvConfig, AspectRatio } from '../types';
 import { Logger } from '../utils/logger';
+import { ImageGenerationError } from './generation-error';
 
 interface MockLogger {
 	info: ReturnType<typeof vi.fn>;
@@ -52,6 +53,92 @@ describe('OpenAIClient', () => {
 		mockLogger = createMockLogger();
 	});
 
+
+	describe('safe failure diagnostics', () => {
+		it('reads recognized HTTP codes from text when json is empty', async () => {
+			vi.mocked(requestUrl).mockResolvedValue({ status: 429, text: '{"error":{"code":"rate_limit_exceeded","message":"private-http-text"}}', json: {} } as unknown as RequestUrlResponse);
+			const subject = new OpenAIClient(baseConfig(), mockLogger as unknown as Logger, 100);
+			await expect(subject.generateImage('sys', 'user', '1:1', '1K')).rejects.toMatchObject({ details: { category: 'http', stage: 'response', httpStatus: 429, errorCode: 'rate_limit_exceeded' } });
+		});
+
+		it('rejects missing API credentials before sending a request', async () => {
+			const subject = new OpenAIClient(baseConfig({ openaiApiKey: undefined }), mockLogger as unknown as Logger, 100);
+			await expect(subject.generateImage('sys', 'user', '1:1', '1K')).rejects.toMatchObject({ details: { category: 'auth_missing', stage: 'auth' } });
+			expect(requestUrl).not.toHaveBeenCalled();
+		});
+
+		it('rejects malformed image fields', async () => {
+			vi.mocked(requestUrl).mockResolvedValue({ status: 200, json: { data: [{ b64_json: 123 }] } } as unknown as RequestUrlResponse);
+			const subject = new OpenAIClient(baseConfig(), mockLogger as unknown as Logger, 100);
+			await expect(subject.generateImage('sys', 'user', '1:1', '1K')).rejects.toMatchObject({ details: { category: 'invalid_image', stage: 'image' } });
+		});
+
+		it('classifies body-level errors without exposing private messages', async () => {
+			vi.mocked(requestUrl).mockResolvedValue({ status: 200, json: { error: { code: 'rate_limit_exceeded', message: 'private-body-message' } } } as unknown as RequestUrlResponse);
+			const subject = new OpenAIClient(baseConfig(), mockLogger as unknown as Logger, 100);
+			const error: unknown = await subject.generateImage('sys', 'user', '1:1', '1K').catch((error: unknown) => error);
+			expect(error).toMatchObject({ details: { category: 'http', stage: 'response', errorCode: 'rate_limit_exceeded' } });
+			expect(JSON.stringify([String(error), error, mockLogger.error.mock.calls])).not.toContain('private-body-message');
+		});
+
+		it.each([
+			[401, 'invalid_api_key'],
+			[429, 'rate_limit_exceeded'],
+			[503, 'sk-private-secret'],
+		])('classifies HTTP %i and exposes only a recognized code', async (status, code) => {
+			const body = { error: { code, message: 'private-response-body', token: 'private-auth-token' } };
+			vi.mocked(requestUrl).mockResolvedValue({ status, text: JSON.stringify(body), json: body } as unknown as RequestUrlResponse);
+			const subject = new OpenAIClient(baseConfig(), mockLogger as unknown as Logger, 100);
+			const error: unknown = await subject.generateImage('sys', 'private-note', '1:1', '1K').catch((error: unknown) => error);
+			expect(error).toBeInstanceOf(ImageGenerationError);
+			expect(error).toMatchObject({ details: { category: 'http', stage: 'response', httpStatus: status, errorCode: code === 'sk-private-secret' ? 'unknown' : code } });
+			expect(JSON.stringify([String(error), error, mockLogger.error.mock.calls])).not.toMatch(/private-response-body|private-auth-token|private-note|sk-private-secret/);
+		});
+
+		it('does not leak rejected request messages', async () => {
+			vi.mocked(requestUrl).mockRejectedValue(new Error('private-request-message sk-private-secret'));
+			const subject = new OpenAIClient(baseConfig(), mockLogger as unknown as Logger, 100);
+			const error: unknown = await subject.generateImage('sys', 'user', '1:1', '1K').catch((error: unknown) => error);
+			expect(error).toBeInstanceOf(ImageGenerationError);
+			expect(error).toMatchObject({ details: { category: 'network', stage: 'request' } });
+			expect(JSON.stringify([String(error), error, mockLogger.error.mock.calls])).not.toMatch(/private-request-message|sk-private-secret/);
+		});
+
+		it('classifies timeouts and clears its timer', async () => {
+			vi.useFakeTimers();
+			try {
+				vi.mocked(requestUrl).mockReturnValue(new Promise(() => {}) as ReturnType<typeof requestUrl>);
+				const subject = new OpenAIClient(baseConfig(), mockLogger as unknown as Logger, 10);
+				const rejected = subject.generateImage('sys', 'user', '1:1', '1K').catch((error: unknown) => error);
+				await vi.advanceTimersByTimeAsync(10);
+				expect(await rejected).toMatchObject({ details: { category: 'timeout', stage: 'request' } });
+				expect(vi.getTimerCount()).toBe(0);
+			} finally {
+				vi.clearAllTimers();
+				vi.useRealTimers();
+			}
+		});
+
+		it('clears the timeout after a completed HTTP response', async () => {
+			vi.useFakeTimers();
+			try {
+				vi.mocked(requestUrl).mockResolvedValue({ status: 429, text: '{}', json: {} } as unknown as RequestUrlResponse);
+				const subject = new OpenAIClient(baseConfig(), mockLogger as unknown as Logger, 100);
+				await expect(subject.generateImage('sys', 'user', '1:1', '1K')).rejects.toBeInstanceOf(ImageGenerationError);
+				expect(vi.getTimerCount()).toBe(0);
+			} finally {
+				vi.clearAllTimers();
+				vi.useRealTimers();
+			}
+		});
+
+		it('identifies explicit unsupported-model errors without exposing response text', async () => {
+			vi.mocked(requestUrl).mockResolvedValue({ status: 404, text: '{"error":{"code":"model_not_found","message":"private-model-message"}}', json: { error: { code: 'model_not_found', message: 'private-model-message' } } } as unknown as RequestUrlResponse);
+			const subject = new OpenAIClient(baseConfig(), mockLogger as unknown as Logger, 100);
+			await expect(subject.generateImage('sys', 'user', '1:1', '1K')).rejects.toMatchObject({ details: { category: 'unsupported_model', stage: 'response', httpStatus: 404, errorCode: 'model_not_found' } });
+		});
+	});
+
 	describe('generateImage', () => {
 		it('should throw a timeout error when the request exceeds timeoutMs', async () => {
 			vi.mocked(requestUrl).mockImplementation(
@@ -62,7 +149,7 @@ describe('OpenAIClient', () => {
 
 			await expect(
 				client.generateImage('sys', 'user', '1:1', '1K')
-			).rejects.toThrow(/timed out/);
+			).rejects.toThrow('category=timeout stage=request');
 		});
 
 		it('should throw with HTTP status on non-2xx response and never log the raw body', async () => {
@@ -76,7 +163,7 @@ describe('OpenAIClient', () => {
 
 			await expect(
 				client.generateImage('sys', 'user', '1:1', '1K')
-			).rejects.toThrow(/HTTP 500/);
+			).rejects.toThrow('category=http stage=response http_status=500');
 
 			expect(mockLogger.error).toHaveBeenCalled();
 			const loggedArgs = JSON.stringify(mockLogger.error.mock.calls);
@@ -144,7 +231,7 @@ describe('OpenAIClient', () => {
 
 			await expect(
 				client.generateImage('sys', 'user', '1:1', '1K')
-			).rejects.toThrow(/No image/);
+			).rejects.toThrow('category=no_image stage=image');
 		});
 
 		it('should reject unsupported DALL-E models before sending a request', async () => {
@@ -154,7 +241,7 @@ describe('OpenAIClient', () => {
 				180_000
 			);
 
-			await expect(client.generateImage('sys', 'user', '1:1', '1K')).rejects.toThrow(/gpt-image-2/);
+			await expect(client.generateImage('sys', 'user', '1:1', '1K')).rejects.toThrow('category=unsupported_model stage=request');
 			expect(requestUrl).not.toHaveBeenCalled();
 		});
 
@@ -165,7 +252,7 @@ describe('OpenAIClient', () => {
 				180_000
 			);
 
-			await expect(client.generateImage('sys', 'user', '16:9', '1K')).rejects.toThrow(/gpt-image-2/);
+			await expect(client.generateImage('sys', 'user', '16:9', '1K')).rejects.toThrow('category=unsupported_model stage=request');
 			expect(requestUrl).not.toHaveBeenCalled();
 		});
 
