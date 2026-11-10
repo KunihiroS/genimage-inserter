@@ -5,6 +5,7 @@
 import { requestUrl } from 'obsidian';
 import { EnvConfig, GeneratedImage, AspectRatio, ImageSize } from '../types';
 import { Logger } from '../utils/logger';
+import { ImageGenerationError, remoteGenerationError, withGenerationTimeout, generationErrorPayload } from './generation-error';
 
 /** Gemini API endpoint */
 const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
@@ -79,6 +80,7 @@ export class GeminiClient {
 		aspectRatio: AspectRatio,
 		imageSize: ImageSize
 	): Promise<GeneratedImage> {
+		if (!this.config.geminiApiKey.trim()) throw new ImageGenerationError({ category: 'auth_missing', stage: 'auth' });
 		const model = this.config.geminiModel;
 		const url = `${GEMINI_API_BASE}/${model}:generateContent`;
 
@@ -122,69 +124,42 @@ export class GeminiClient {
 			supportsAspectRatioOnly,
 		});
 
+		const response = await withGenerationTimeout(() => requestUrl({
+			url,
+			method: 'POST',
+			headers: {
+				'Content-Type': 'application/json',
+				'x-goog-api-key': this.config.geminiApiKey,
+			},
+			body: JSON.stringify(requestBody),
+			throw: false,
+		}), this.timeoutMs);
+
+		if (response.status >= 400) {
+			const payload = generationErrorPayload(response);
+			const failure = remoteGenerationError(payload, response.status);
+			this.logger.error('Gemini API HTTP error', failure.details);
+			throw failure;
+		}
+
 		try {
-			const timeoutPromise = new Promise<never>((_, reject) =>
-				setTimeout(
-					() => reject(new Error(`Request timed out after ${this.timeoutMs / 1000} seconds`)),
-					this.timeoutMs
-				)
-			);
-
-			const response = await Promise.race([
-				requestUrl({
-					url: url,
-					method: 'POST',
-					headers: {
-						'Content-Type': 'application/json',
-						'x-goog-api-key': this.config.geminiApiKey,
-					},
-					body: JSON.stringify(requestBody),
-					throw: false,
-				}),
-				timeoutPromise,
-			]);
-
-			// Handle HTTP-level errors (e.g. 503 Service Unavailable)
-			if (response.status >= 400) {
-				this.logger.error('Gemini API HTTP error', {
-					status: response.status,
-					body: response.text,
-				});
-				throw new Error(`Gemini API error: HTTP ${response.status}`);
-			}
-
 			const data = response.json as GeminiResponse;
-
-			// Check for API error
-			if (data.error) {
-				this.logger.error('Gemini API error', {
-					code: data.error.code,
-					status: data.error.status,
-					message: data.error.message
-				});
-				throw new Error(`Gemini API error: ${data.error.message}`);
-			}
-
-			// Extract image from response
+			if (data.error) throw remoteGenerationError(data);
 			const image = this.extractImageFromResponse(data);
-			if (!image) {
-				this.logger.error('No image in Gemini response');
-				throw new Error('No image was generated. The API may have returned text only.');
+			if (!image) throw new ImageGenerationError({ category: 'no_image', stage: 'image' });
+			if (typeof image.data !== 'string' || !image.data ||
+				!['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(image.mimeType)) {
+				throw new ImageGenerationError({ category: 'invalid_image', stage: 'image' });
 			}
-
 			this.logger.info('Image generated successfully', {
 				mimeType: image.mimeType,
-				dataLength: image.data.length
+				dataLength: image.data.length,
 			});
-
 			return image;
-
 		} catch (error) {
-			if (error instanceof Error) {
-				this.logger.error('Failed to generate image', error.message);
-				throw error;
-			}
-			throw new Error('Unknown error occurred during image generation');
+			const failure = error instanceof ImageGenerationError ? error : new ImageGenerationError({ category: 'unknown', stage: 'response' });
+			this.logger.error('Failed to generate image', failure.details);
+			throw failure;
 		}
 	}
 

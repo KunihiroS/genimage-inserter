@@ -6,10 +6,12 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { RequestUrlParam, RequestUrlResponse } from 'obsidian';
 import { requestUrl } from 'obsidian';
 import * as fs from 'fs';
+import { deflateSync } from 'zlib';
 import { CodexOAuthImageClient } from './codex-oauth';
 import { loadEnvFile } from '../utils/env-loader';
 import { EnvConfig } from '../types';
 import { Logger } from '../utils/logger';
+import { ImageGenerationError } from './generation-error';
 
 vi.mock('fs');
 
@@ -44,14 +46,31 @@ function baseConfig(overrides: Partial<EnvConfig> = {}): EnvConfig {
 	};
 }
 
+function pngChunk(type: string, data: Buffer): Buffer {
+	const chunk = Buffer.alloc(data.length + 12);
+	chunk.writeUInt32BE(data.length, 0);
+	chunk.write(type, 4, 'ascii');
+	data.copy(chunk, 8);
+	let crc = 0xffffffff;
+	for (const byte of chunk.subarray(4, chunk.length - 4)) {
+		crc ^= byte;
+		for (let bit = 0; bit < 8; bit++) crc = (crc >>> 1) ^ ((crc & 1) ? 0xedb88320 : 0);
+	}
+	chunk.writeUInt32BE((crc ^ 0xffffffff) >>> 0, chunk.length - 4);
+	return chunk;
+}
+
 function pngBase64WithDimensions(width: number, height: number): string {
-	const bytes = Buffer.alloc(33);
-	Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(bytes, 0);
-	bytes.writeUInt32BE(13, 8);
-	bytes.write('IHDR', 12, 'ascii');
-	bytes.writeUInt32BE(width, 16);
-	bytes.writeUInt32BE(height, 20);
-	return bytes.toString('base64');
+	const ihdr = Buffer.alloc(13);
+	ihdr.writeUInt32BE(width, 0);
+	ihdr.writeUInt32BE(height, 4);
+	ihdr[8] = 8; // 8-bit grayscale, filter zero for each scanline.
+	return Buffer.concat([
+		Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+		pngChunk('IHDR', ihdr),
+		pngChunk('IDAT', deflateSync(Buffer.alloc((width + 1) * height))),
+		pngChunk('IEND', Buffer.alloc(0)),
+	]).toString('base64');
 }
 
 const pngBase64 = pngBase64WithDimensions(2048, 1152);
@@ -75,6 +94,146 @@ describe('CodexOAuthImageClient', () => {
 	afterEach(() => {
 		vi.clearAllTimers();
 		vi.useRealTimers();
+	});
+
+
+
+	describe('auth and streamed failure classification', () => {
+		it.each(['response.failed', 'response.incomplete'])('rejects a later %s even after receiving an image', async (type) => {
+			vi.mocked(requestUrl).mockResolvedValue({ status: 200, text: [
+				`data: {"item":{"type":"image_generation_call","result":"${pngBase64}"}}`,
+				`data: ${JSON.stringify({ type, response: { error: { code: 'rate_limit_exceeded', message: 'private-late-failure' } } })}`,
+			].join('\n\n'), json: {} } as unknown as RequestUrlResponse);
+			const subject = new CodexOAuthImageClient(baseConfig(), mockLogger as unknown as Logger, 100);
+			const error: unknown = await subject.generateImage('sys', 'user', '1:1', '1K').catch((error: unknown) => error);
+			expect(error).toBeInstanceOf(ImageGenerationError);
+			expect(error).toMatchObject({ details: { category: 'stream', stage: 'response', errorCode: 'rate_limit_exceeded' } });
+			expect(JSON.stringify([String(error), error, mockLogger.error.mock.calls])).not.toContain('private-late-failure');
+			expect(mockLogger.info).not.toHaveBeenCalled();
+		});
+
+		it('rejects a header-only PNG missing IDAT and IEND', async () => {
+			const truncated = Buffer.alloc(33);
+			Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(truncated);
+			truncated.writeUInt32BE(13, 8);
+			truncated.write('IHDR', 12, 'ascii');
+			truncated.writeUInt32BE(2048, 16);
+			truncated.writeUInt32BE(1152, 20);
+			vi.mocked(requestUrl).mockResolvedValue({ status: 200, text: `data: {"item":{"type":"image_generation_call","result":"${truncated.toString('base64')}"}}\n`, json: {} } as unknown as RequestUrlResponse);
+			const subject = new CodexOAuthImageClient(baseConfig(), mockLogger as unknown as Logger, 100);
+			await expect(subject.generateImage('sys', 'user', '1:1', '1K')).rejects.toMatchObject({ details: { category: 'invalid_image', stage: 'image' } });
+		});
+
+		it.each([
+			['missing', 'auth_missing'],
+			['unreadable', 'auth_unreadable'],
+			['malformed', 'auth_invalid'],
+			['token missing', 'auth_invalid'],
+			['token wrong type', 'auth_invalid'],
+		])('classifies %s auth without leaking content', async (scenario, category) => {
+			vi.mocked(fs.existsSync).mockReturnValue(scenario !== 'missing');
+			if (scenario === 'unreadable') vi.mocked(fs.readFileSync).mockImplementation(() => { throw new Error('private-filesystem-message'); });
+			else vi.mocked(fs.readFileSync).mockReturnValue(scenario === 'malformed' ? '{private-auth-json' : scenario === 'token missing' ? '{}' : '{"access_token":123}');
+			const subject = new CodexOAuthImageClient(baseConfig({ codexAccessToken: undefined }), mockLogger as unknown as Logger, 100);
+			const error: unknown = await subject.generateImage('sys', 'user', '1:1', '1K').catch((error: unknown) => error);
+			expect(error).toBeInstanceOf(ImageGenerationError);
+			expect(error).toMatchObject({ details: { category, stage: 'auth' } });
+			expect(JSON.stringify([String(error), error, mockLogger.error.mock.calls])).not.toMatch(/private-filesystem-message|private-auth-json/);
+			expect(requestUrl).not.toHaveBeenCalled();
+		});
+
+		it.each(['response.failed', 'response.incomplete', 'error'])('classifies %s without leaking event messages or codes', async (type) => {
+			vi.mocked(requestUrl).mockResolvedValue({ status: 200, text: `data: ${JSON.stringify({ type, error: { code: 'sk-private-stream-token', message: 'private-stream-message' } })}\n\n`, json: {} } as unknown as RequestUrlResponse);
+			const subject = new CodexOAuthImageClient(baseConfig(), mockLogger as unknown as Logger, 100);
+			const error: unknown = await subject.generateImage('sys', 'user', '1:1', '1K').catch((error: unknown) => error);
+			expect(error).toBeInstanceOf(ImageGenerationError);
+			expect(error).toMatchObject({ details: { category: 'stream', stage: 'response', errorCode: 'unknown' } });
+			expect(JSON.stringify([String(error), error, mockLogger.error.mock.calls])).not.toMatch(/sk-private-stream-token|private-stream-message/);
+		});
+
+		it('classifies missing image events', async () => {
+			vi.mocked(requestUrl).mockResolvedValue({ status: 200, text: 'data: [DONE]\n', json: {} } as unknown as RequestUrlResponse);
+			const subject = new CodexOAuthImageClient(baseConfig(), mockLogger as unknown as Logger, 100);
+			await expect(subject.generateImage('sys', 'user', '1:1', '1K')).rejects.toMatchObject({ details: { category: 'no_image', stage: 'image' } });
+		});
+
+		it('classifies invalid PNG data', async () => {
+			vi.mocked(requestUrl).mockResolvedValue({ status: 200, text: 'data: {"item":{"type":"image_generation_call","result":"private-not-png"}}\n', json: {} } as unknown as RequestUrlResponse);
+			const subject = new CodexOAuthImageClient(baseConfig(), mockLogger as unknown as Logger, 100);
+			await expect(subject.generateImage('sys', 'user', '1:1', '1K')).rejects.toMatchObject({ details: { category: 'invalid_image', stage: 'image' } });
+		});
+
+		it('labels the image model as requested and accepts a differing served tool identity', async () => {
+			vi.mocked(requestUrl).mockResolvedValue({ status: 200, text: `data: {"item":{"type":"image_generation_call","model":"gpt-image-2-codex","result":"${pngBase64}"}}\n`, json: {} } as unknown as RequestUrlResponse);
+			const subject = new CodexOAuthImageClient(baseConfig(), mockLogger as unknown as Logger, 100);
+			await expect(subject.generateImage('sys', 'user', '1:1', '1K')).resolves.toEqual({ data: pngBase64, mimeType: 'image/png' });
+			expect(mockLogger.debug).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ requestedImageModel: 'gpt-image-2.6-sunburst' }));
+		});
+	});
+
+	describe('safe failure diagnostics', () => {
+		it('reads recognized HTTP codes from text when json is empty', async () => {
+			vi.mocked(requestUrl).mockResolvedValue({ status: 429, text: '{"error":{"code":"rate_limit_exceeded","message":"private-http-text"}}', json: {} } as unknown as RequestUrlResponse);
+			const subject = new CodexOAuthImageClient(baseConfig(), mockLogger as unknown as Logger, 100);
+			await expect(subject.generateImage('sys', 'user', '1:1', '1K')).rejects.toMatchObject({ details: { category: 'http', stage: 'response', httpStatus: 429, errorCode: 'rate_limit_exceeded' } });
+		});
+
+		it.each([
+			[401, 'invalid_api_key'],
+			[429, 'rate_limit_exceeded'],
+			[503, 'sk-private-secret'],
+		])('classifies HTTP %i and exposes only a recognized code', async (status, code) => {
+			const body = { error: { code, message: 'private-response-body', token: 'private-auth-token' } };
+			vi.mocked(requestUrl).mockResolvedValue({ status, text: JSON.stringify(body), json: body } as unknown as RequestUrlResponse);
+			const subject = new CodexOAuthImageClient(baseConfig(), mockLogger as unknown as Logger, 100);
+			const error: unknown = await subject.generateImage('sys', 'private-note', '1:1', '1K').catch((error: unknown) => error);
+			expect(error).toBeInstanceOf(ImageGenerationError);
+			expect(error).toMatchObject({ details: { category: 'http', stage: 'response', httpStatus: status, errorCode: code === 'sk-private-secret' ? 'unknown' : code } });
+			expect(JSON.stringify([String(error), error, mockLogger.error.mock.calls])).not.toMatch(/private-response-body|private-auth-token|private-note|sk-private-secret/);
+		});
+
+		it('does not leak rejected request messages', async () => {
+			vi.mocked(requestUrl).mockRejectedValue(new Error('private-request-message sk-private-secret'));
+			const subject = new CodexOAuthImageClient(baseConfig(), mockLogger as unknown as Logger, 100);
+			const error: unknown = await subject.generateImage('sys', 'user', '1:1', '1K').catch((error: unknown) => error);
+			expect(error).toBeInstanceOf(ImageGenerationError);
+			expect(error).toMatchObject({ details: { category: 'network', stage: 'request' } });
+			expect(JSON.stringify([String(error), error, mockLogger.error.mock.calls])).not.toMatch(/private-request-message|sk-private-secret/);
+		});
+
+		it('classifies timeouts and clears its timer', async () => {
+			vi.useFakeTimers();
+			try {
+				vi.mocked(requestUrl).mockReturnValue(new Promise(() => {}) as ReturnType<typeof requestUrl>);
+				const subject = new CodexOAuthImageClient(baseConfig(), mockLogger as unknown as Logger, 10);
+				const rejected = subject.generateImage('sys', 'user', '1:1', '1K').catch((error: unknown) => error);
+				await vi.advanceTimersByTimeAsync(10);
+				expect(await rejected).toMatchObject({ details: { category: 'timeout', stage: 'request' } });
+				expect(vi.getTimerCount()).toBe(0);
+			} finally {
+				vi.clearAllTimers();
+				vi.useRealTimers();
+			}
+		});
+
+		it('clears the timeout after a completed HTTP response', async () => {
+			vi.useFakeTimers();
+			try {
+				vi.mocked(requestUrl).mockResolvedValue({ status: 429, text: '{}', json: {} } as unknown as RequestUrlResponse);
+				const subject = new CodexOAuthImageClient(baseConfig(), mockLogger as unknown as Logger, 100);
+				await expect(subject.generateImage('sys', 'user', '1:1', '1K')).rejects.toBeInstanceOf(ImageGenerationError);
+				expect(vi.getTimerCount()).toBe(0);
+			} finally {
+				vi.clearAllTimers();
+				vi.useRealTimers();
+			}
+		});
+
+		it('identifies explicit unsupported-model errors without exposing response text', async () => {
+			vi.mocked(requestUrl).mockResolvedValue({ status: 404, text: '{"error":{"code":"model_not_found","message":"private-model-message"}}', json: { error: { code: 'model_not_found', message: 'private-model-message' } } } as unknown as RequestUrlResponse);
+			const subject = new CodexOAuthImageClient(baseConfig(), mockLogger as unknown as Logger, 100);
+			await expect(subject.generateImage('sys', 'user', '1:1', '1K')).rejects.toMatchObject({ details: { category: 'unsupported_model', stage: 'response', httpStatus: 404, errorCode: 'model_not_found' } });
+		});
 	});
 
 	describe('generateImage', () => {
@@ -133,7 +292,7 @@ describe('CodexOAuthImageClient', () => {
 				codexAccountId: undefined, codexAuthFilePath: undefined, codexFallbackEnabled: false,
 			}), mockLogger as unknown as Logger, 300_000);
 
-			await expect(client.generateImage('sys', 'user', '1:1', '1K')).rejects.toThrow(/not enabled/);
+			await expect(client.generateImage('sys', 'user', '1:1', '1K')).rejects.toThrow('category=disabled stage=auth');
 			expect(fs.existsSync).not.toHaveBeenCalled();
 			expect(requestUrl).not.toHaveBeenCalled();
 		});
@@ -142,16 +301,16 @@ describe('CodexOAuthImageClient', () => {
 			vi.mocked(requestUrl).mockResolvedValue({ status, text: 'private-response-fixture', json: {} } as unknown as RequestUrlResponse);
 			const client = new CodexOAuthImageClient(baseConfig({ codexResponsesModel: 'unavailable-model' }), mockLogger as unknown as Logger, 300_000);
 
-			await expect(client.generateImage('sys', 'private-note-fixture', '1:1', '1K')).rejects.toThrow(`Codex OAuth API error: HTTP ${status}`);
+			await expect(client.generateImage('sys', 'private-note-fixture', '1:1', '1K')).rejects.toThrow(`category=http stage=response http_status=${status}`);
 			expect(requestUrl).toHaveBeenCalledTimes(1);
-			expect(mockLogger.error).toHaveBeenCalledWith('Codex OAuth API HTTP error', { status, bodyLength: 24 });
+			expect(mockLogger.error).toHaveBeenCalledWith('Codex OAuth API HTTP error', { category: 'http', stage: 'response', httpStatus: status });
 			expect(JSON.stringify(mockLogger.error.mock.calls)).not.toMatch(/private-response-fixture|private-note-fixture|codex-token/);
 		});
 
 		it('should surface a timeout without retrying a different Responses model', async () => {
 			vi.mocked(requestUrl).mockReturnValue(new Promise(() => {}) as ReturnType<typeof requestUrl>);
 			const client = new CodexOAuthImageClient(baseConfig({ codexResponsesModel: 'slow-model' }), mockLogger as unknown as Logger, 10);
-			const rejection = expect(client.generateImage('sys', 'user', '1:1', '1K')).rejects.toThrow('Request timed out after 0.01 seconds');
+			const rejection = expect(client.generateImage('sys', 'user', '1:1', '1K')).rejects.toThrow('category=timeout stage=request');
 
 			await vi.advanceTimersByTimeAsync(10);
 			await rejection;
@@ -270,7 +429,7 @@ describe('CodexOAuthImageClient', () => {
 				300_000
 			);
 
-			await expect(client.generateImage('sys', 'user', '1:1', '1K')).rejects.toThrow(/Codex OAuth auth is not configured/);
+			await expect(client.generateImage('sys', 'user', '1:1', '1K')).rejects.toThrow('category=auth_missing stage=auth');
 			expect(requestUrl).not.toHaveBeenCalled();
 		});
 
@@ -281,7 +440,7 @@ describe('CodexOAuthImageClient', () => {
 				300_000
 			);
 
-			await expect(client.generateImage('sys', 'user', '1:1', '1K')).rejects.toThrow(/not enabled/);
+			await expect(client.generateImage('sys', 'user', '1:1', '1K')).rejects.toThrow('category=disabled stage=auth');
 			expect(fs.existsSync).not.toHaveBeenCalled();
 			expect(requestUrl).not.toHaveBeenCalled();
 		});
@@ -365,10 +524,10 @@ describe('CodexOAuthImageClient', () => {
 
 			const client = new CodexOAuthImageClient(baseConfig(), mockLogger as unknown as Logger, 300_000);
 
-			await expect(client.generateImage('sys', 'user', '1:1', '1K')).rejects.toThrow(/quota exceeded/);
+			await expect(client.generateImage('sys', 'user', '1:1', '1K')).rejects.toThrow('category=stream stage=response');
 		});
 
-		it('should surface known response failure messages without leaking raw SSE events', async () => {
+		it('should classify response failures without leaking raw SSE events', async () => {
 			vi.mocked(requestUrl).mockResolvedValue({
 				status: 200,
 				text: 'data: {"type":"response.failed","response":{"error":{"message":"workspace denied","secret":"raw-payload"}}}\n\n',
@@ -377,7 +536,7 @@ describe('CodexOAuthImageClient', () => {
 
 			const client = new CodexOAuthImageClient(baseConfig(), mockLogger as unknown as Logger, 300_000);
 
-			await expect(client.generateImage('sys', 'user', '1:1', '1K')).rejects.toThrow('Codex image generation failed: workspace denied');
+			await expect(client.generateImage('sys', 'user', '1:1', '1K')).rejects.toThrow('category=stream stage=response');
 			await expect(client.generateImage('sys', 'user', '1:1', '1K')).rejects.not.toThrow(/raw-payload/);
 		});
 
@@ -390,7 +549,7 @@ describe('CodexOAuthImageClient', () => {
 
 			const client = new CodexOAuthImageClient(baseConfig(), mockLogger as unknown as Logger, 300_000);
 
-			await expect(client.generateImage('sys', 'user', '1:1', '1K')).rejects.toThrow(/not a PNG/);
+			await expect(client.generateImage('sys', 'user', '1:1', '1K')).rejects.toThrow('category=invalid_image stage=image');
 		});
 	});
 });

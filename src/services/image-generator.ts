@@ -11,6 +11,7 @@ import { getPromptFiles } from '../utils/prompt-parser';
 import { GeminiClient } from '../api/gemini';
 import { OpenAIClient } from '../api/openai';
 import { CodexOAuthImageClient } from '../api/codex-oauth';
+import { ImageGenerationError, formatGenerationFailure, type GenerationFailure } from '../api/generation-error';
 import { showPromptSelector } from '../ui/prompt-selector-modal';
 
 /**
@@ -138,66 +139,61 @@ export class ImageGeneratorService {
 		// imageOutputDirectory can be empty (means Vault root)
 	}
 
-	/**
-	 * Generate image using Gemini, with optional OpenAI and Codex OAuth fallbacks on failure.
-	 */
+	/** Generate through the subscription first; paid APIs run only after failure. */
 	private async generateImage(
 		envConfig: EnvConfig,
 		prompt: PromptFile,
 		sourceText: string
 	): Promise<GeneratedImage> {
 		const timeoutMs = this.settings.requestTimeoutSeconds * 1000;
+		const args = [prompt.content, sourceText, prompt.aspectRatio, prompt.imageSize] as const;
+		const failures: string[] = [];
+		const classify = (error: unknown): GenerationFailure => error instanceof ImageGenerationError
+			? error.details
+			: { category: 'unknown', stage: 'request' };
+
+		try {
+			const codex = new CodexOAuthImageClient(envConfig, this.logger, timeoutMs);
+			const image = await codex.generateImage(...args);
+			this.logger.info('Codex OAuth generation succeeded');
+			return image;
+		} catch (error) {
+			const failure = classify(error);
+			failures.push(`Codex OAuth failed: ${formatGenerationFailure(failure)}`);
+			// A returned model name is not an error. An explicit unsupported-model error is.
+			if (failure.category === 'unsupported_model') {
+				throw new Error(failures.join('; '));
+			}
+			this.logger.warn('Codex OAuth failed, attempting Gemini fallback', failure);
+		}
 
 		try {
 			const gemini = new GeminiClient(envConfig, this.logger, timeoutMs);
-			return await gemini.generateImage(
-				prompt.content,
-				sourceText,
-				prompt.aspectRatio,
-				prompt.imageSize
-			);
-		} catch (geminiError) {
-			const geminiMsg = geminiError instanceof Error ? geminiError.message : String(geminiError);
-			let openaiMsg: string | null = null;
-
-			if (envConfig.openaiApiKey) {
-				this.logger.warn('Gemini failed, attempting OpenAI fallback', { geminiError: geminiMsg });
-
-				try {
-					const openai = new OpenAIClient(envConfig, this.logger, timeoutMs);
-					const image = await openai.generateImage(
-						prompt.content,
-						sourceText,
-						prompt.aspectRatio,
-						prompt.imageSize
-					);
-					this.logger.info('OpenAI fallback succeeded');
-					return image;
-				} catch (openaiError) {
-					openaiMsg = openaiError instanceof Error ? openaiError.message : String(openaiError);
-				}
-			} else {
-				this.logger.info('Gemini failed and no OpenAI key configured; attempting Codex OAuth fallback');
-			}
-
-			try {
-				const codex = new CodexOAuthImageClient(envConfig, this.logger, timeoutMs);
-				const image = await codex.generateImage(
-					prompt.content,
-					sourceText,
-					prompt.aspectRatio,
-					prompt.imageSize
-				);
-				this.logger.info('Codex OAuth fallback succeeded');
-				return image;
-			} catch (codexError) {
-				const codexMsg = codexError instanceof Error ? codexError.message : String(codexError);
-				if (openaiMsg) {
-					throw new Error(`Gemini failed: ${geminiMsg}; OpenAI fallback failed: ${openaiMsg}; Codex OAuth fallback failed: ${codexMsg}`);
-				}
-				throw new Error(`Gemini failed: ${geminiMsg}; Codex OAuth fallback failed: ${codexMsg}`);
-			}
+			const image = await gemini.generateImage(...args);
+			this.logger.info('Gemini fallback succeeded');
+			return image;
+		} catch (error) {
+			const failure = classify(error);
+			failures.push(`Gemini failed: ${formatGenerationFailure(failure)}`);
+			this.logger.warn('Gemini generation failed', failure);
 		}
+
+		if (envConfig.openaiApiKey) {
+			this.logger.warn('Gemini failed, attempting OpenAI fallback');
+			try {
+				const openai = new OpenAIClient(envConfig, this.logger, timeoutMs);
+				const image = await openai.generateImage(...args);
+				this.logger.info('OpenAI fallback succeeded');
+				return image;
+			} catch (error) {
+				const failure = classify(error);
+				failures.push(`OpenAI failed: ${formatGenerationFailure(failure)}`);
+				this.logger.warn('OpenAI generation failed', failure);
+			}
+		} else {
+			failures.push('OpenAI skipped: no API key');
+		}
+		throw new Error(failures.join('; '));
 	}
 
 	/**

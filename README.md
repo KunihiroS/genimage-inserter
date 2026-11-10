@@ -1,6 +1,6 @@
 # GenImage Inserter
 
-An Obsidian plugin that generates images from your note text using Gemini AI and inserts them directly into your notes.
+An Obsidian plugin that generates images from your note text and inserts them directly into your notes. With explicit opt-in, it tries Codex/ChatGPT OAuth subscription generation first, then Gemini, then optional OpenAI API fallback.
 
 ## Demo
 - Easy to use! (Not so first as it is though, in case of gemini3pro image 😇)  
@@ -8,7 +8,7 @@ An Obsidian plugin that generates images from your note text using Gemini AI and
 
 ## Features
 
-- 🎨 Generate images from selected text or entire note content using Gemini AI
+- 🎨 Generate images from selected text or entire note content using Codex/ChatGPT OAuth, Gemini, or OpenAI
   - no text selection makes an entire note as context to generate.
 - 📝 Multiple prompt templates with customizable aspect ratio and image quality
 - 🖱️ Right-click context menu integration
@@ -56,29 +56,71 @@ For any other model, generation still works, but `aspect_ratio` and `image_size`
 Create a `.env` file **outside your vault** with the following content:
 
 ```ini
-LLM_PROVIDER=gemini #LLM Provider is currently fixed to GEMINI
+LLM_PROVIDER=gemini # Retained Gemini setting; see generation order below
 GEMINI_API_KEY=your_api_key_here
 GEMINI_MODEL=gemini-3-pro-image # example; see the "Models" section
 
-# Optional: OpenAI fallback (see "OpenAI fallback" section below)
-# OPENAI_API_KEY=sk-...
-# OPENAI_MODEL=gpt-image-2.6-sunburst
-# OPENAI_BASE_URL=https://api.openai.com/v1
-
-# Optional: Codex OAuth fallback (see "Codex OAuth fallback" section below)
-# After `codex login`, this single flag is all you need:
+# Optional: Codex OAuth subscription first (see section below)
+# Reuse an existing `codex login` session with explicit opt-in:
 # CODEX_FALLBACK_ENABLED=true
 # Optional: override the Codex Responses model (unset = built-in default)
 # CODEX_RESPONSES_MODEL=<model-name>
+
+# Optional: paid OpenAI API fallback after Gemini fails
+# OPENAI_API_KEY=sk-...
+# OPENAI_MODEL=gpt-image-2.6-sunburst
+# OPENAI_BASE_URL=https://api.openai.com/v1
 ```
 
 **Recommended path**: Use `~/.config/genimage-inserter/.env` to ensure cross-platform compatibility (Linux, macOS, Windows).
 
 > ⚠️ **Security**: The `.env` file must be outside your vault to prevent accidental sync or exposure of your API key.
 
-### OpenAI Fallback (optional)
+### Generation order and costs
 
-If `OPENAI_API_KEY` is set in your `.env`, the plugin automatically retries via OpenAI's `/v1/images/generations` endpoint when the primary Gemini call fails (HTTP error, timeout, or no image returned). If OpenAI is unavailable or also fails, the plugin can then try Codex OAuth fallback when configured.
+Each user-initiated generation uses this order:
+
+1. Try Codex/ChatGPT OAuth subscription generation if explicitly enabled or configured with the existing Codex auth options.
+2. If Codex is disabled, has no usable auth file/token, or fails, use Gemini.
+3. If Gemini fails, try OpenAI only when `OPENAI_API_KEY` is set.
+
+Without Codex opt-in, generation starts with Gemini. A missing Codex auth file does not block Gemini. An explicit unsupported-model error stops generation for operator review; the plugin does not guess another model or use a paid fallback for that error. The log records why Codex was skipped or failed and which fallback was used, without exposing credentials or raw provider error bodies. Gemini and direct OpenAI calls may incur paid API charges even when the first attempt uses a subscription.
+
+Generation sends your selected text (or the whole note when nothing is selected) and prompt template to the service used. A fallback can send the same text to the next configured service. This happens only when you select **Generate image** and a prompt template, not at startup or in the background. Enable only the routes you consent to use.
+
+### Codex OAuth subscription first (optional)
+
+Codex uses the ChatGPT/Codex backend `responses` endpoint with the `image_generation` tool. It does **not** call the `codex` CLI for each generation, but it can reuse existing credentials created by `codex login`.
+
+**Setup**: with an existing Codex login, add `CODEX_FALLBACK_ENABLED=true` to your `.env`. The plugin then reads credentials from the default `~/.codex/auth.json`. The legacy variable name is retained for compatibility, but Codex is now attempted **before** Gemini, not as a final fallback. Existing explicit `CODEX_AUTH_FILE_PATH` or `CODEX_ACCESS_TOKEN` options also opt in; `CODEX_ACCOUNT_ID` remains available for custom credentials.
+
+The default `~/.codex/auth.json` file is **not** auto-discovered without explicit Codex opt-in. Merely being logged in with Codex does not send vault text to ChatGPT/Codex. If the file is missing, the plugin logs the reason and continues with Gemini.
+
+If Codex returns HTTP 401, refresh the local Codex session yourself with `codex login`. The plugin does not refresh tokens itself. No new credentials or settings are required for an existing working configuration.
+
+`CODEX_RESPONSES_MODEL` optionally overrides the model that drives the Codex request, **not** the image model. Leave it unset to keep the built-in default. It does not enable Codex on its own.
+
+Codex request settings (only the Responses model is configurable; `OPENAI_MODEL` affects only the direct OpenAI fallback):
+
+| Setting | Requested value |
+|---|---|
+| Responses model | `CODEX_RESPONSES_MODEL` (unchanged default: `gpt-6.1-sol`) |
+| image tool model (fixed request) | `gpt-image-2.6-sunburst` |
+| size (fixed request) | `2048x1152` |
+| quality (fixed request) | `low` |
+| output format (fixed request) | `png` |
+
+**The requested image model is not a guarantee of the model used by the subscription backend.** In the 2026-11-08 VVC observation, response tool metadata reported `model: gpt-image-2-codex`, `size: auto`, and `quality: auto`; the image output reported quality `low`. This does not prove that an internal 2.6 model generated the image. The plugin requests `gpt-image-2.6-sunburst` but does not claim that subscription generation actually uses it.
+
+Size and quality are also requests, not guaranteed output properties. The plugin reads the generated PNG dimensions and logs both the requested and actual size. A size mismatch is a warning and does not fail generation.
+
+Prompt frontmatter `image_size` is ignored on the Codex path. Prompt frontmatter `aspect_ratio` does not change the fixed request `size`, but is added to the user prompt as a natural-language orientation hint such as `16:9 landscape / horizontal` or `4:5 portrait / vertical`.
+
+> ⚠️ **Security**: Keep Codex OAuth tokens and auth JSON files outside your vault and synced directories. Reuse your existing credentials; do not copy them into notes or logs. The plugin logs non-secret failure classifications for routing decisions.
+
+### OpenAI fallback (optional)
+
+If `OPENAI_API_KEY` is set in your `.env`, the plugin retries via OpenAI's `/v1/images/generations` endpoint after Gemini fails (HTTP error, timeout, or no image returned). OpenAI is the final fallback; it is skipped when no key is configured. This API route may incur separate charges.
 
 | Variable | Description | Default |
 |---|---|---|
@@ -109,36 +151,6 @@ Do not set `OPENAI_MODEL` to `gpt-image-1`, `gpt-image-1.5`, `gpt-image-1-mini`,
 The `image_size` prompt parameter (`1K`/`2K`/`4K`) is currently **ignored** when using the OpenAI fallback; the fallback chooses a conservative size from `aspect_ratio` only.
 
 > Note: Azure OpenAI uses a different URL path and auth header, so it is **not supported** by this fallback even via `OPENAI_BASE_URL`. Only endpoints that mirror the official OpenAI API shape (`POST /images/generations` with bearer-token authorization) will work.
-
-### Codex OAuth Fallback (optional)
-
-If Gemini fails and OpenAI direct fallback is unavailable or fails, the plugin can make a final local fallback attempt using Codex/ChatGPT OAuth credentials. This path is intended as a last-resort local fallback when API-key based image generation is blocked.
-
-Codex fallback uses the ChatGPT/Codex backend `responses` endpoint with the `image_generation` tool. It does **not** call the `codex` CLI for each generation, but it can reuse credentials created by `codex login`.
-
-**Setup**: run `codex login`, then add `CODEX_FALLBACK_ENABLED=true` to your `.env`. That single flag is all you need — the plugin reads the required credentials from the default `~/.codex/auth.json`. (Advanced overrides for a custom token, account ID, or auth-file path exist but are rarely needed.)
-
-The default `~/.codex/auth.json` file is **not** auto-discovered unless `CODEX_FALLBACK_ENABLED=true` is set. This explicit opt-in prevents selected vault text from being sent to ChatGPT/Codex merely because the user happens to be logged in with Codex.
-
-If the fallback returns HTTP 401, refresh the local Codex session with `codex login`. The plugin does not refresh tokens itself.
-
-`CODEX_RESPONSES_MODEL` optionally overrides the model that drives the Codex request (not the image model). Leave it unset to use the built-in default. It has no effect unless `CODEX_FALLBACK_ENABLED=true`.
-
-Codex fallback request settings (only the Responses model is configurable; `OPENAI_MODEL` affects only the direct OpenAI fallback):
-
-| Setting | Value |
-|---|---|
-| Responses model | `CODEX_RESPONSES_MODEL` (default as of 0.3.0: `gpt-6.1-sol`) |
-| image tool model (fixed) | `gpt-image-2.6-sunburst` |
-| size (fixed) | `2048x1152` |
-| quality (fixed) | `low` |
-| output format (fixed) | `png` |
-
-The `size` value is a request setting sent to the private ChatGPT/Codex backend, not a guaranteed output dimension. The backend usually returns the requested shape, but it may return a different actual PNG size such as `864x1821`. The plugin reads the generated PNG dimensions and writes both the requested size and actual size to the debug log. A size mismatch is logged as a warning and does not fail generation.
-
-Prompt frontmatter `image_size` is ignored on the Codex fallback path. Prompt frontmatter `aspect_ratio` is not used to change the fixed request `size`, but it is added to the user prompt as a natural-language orientation hint such as `16:9 landscape / horizontal` or `4:5 portrait / vertical`. This keeps Codex fallback simple while still steering the model toward the selected prompt orientation.
-
-> ⚠️ **Security**: Do not put Codex OAuth tokens or auth JSON files inside your vault. Prefer the default `~/.codex/auth.json` created by `codex login`, or keep any custom auth file outside synced directories. The plugin logs only non-secret failure information.
 
 ### Prompt Files
 
